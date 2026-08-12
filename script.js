@@ -306,6 +306,37 @@ const CONFIG = {
       .trim();
   }
 
+  function compactText(value) {
+    return String(value ?? "").replace(/\s+/g, " ").trim();
+  }
+
+  function categorySlug(value) {
+    return searchable(value)
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+  }
+
+  function readCatalogFilters(search = "") {
+    const parameters = new URLSearchParams(String(search).replace(/^\?/, ""));
+    const type = compactText(parameters.get("tipo"));
+    return {
+      query: compactText(parameters.get("busca")),
+      type: type === "fisico" || type === "digital" ? type : "",
+      category: categorySlug(parameters.get("categoria")),
+    };
+  }
+
+  function serializeCatalogFilters(filters = {}) {
+    const parameters = new URLSearchParams();
+    const query = compactText(filters.query);
+    const type = compactText(filters.type);
+    const category = categorySlug(filters.category);
+    if (query) parameters.set("busca", query);
+    if (type === "fisico" || type === "digital") parameters.set("tipo", type);
+    if (category) parameters.set("categoria", category);
+    return parameters.toString();
+  }
+
   function partnerLabel(partnerKey) {
     return CONFIG.affiliatePartners[partnerKey]?.label ?? partnerKey;
   }
@@ -377,6 +408,9 @@ const CONFIG = {
     calculateDiscount,
     filterProducts,
     partnerLabel,
+    categorySlug,
+    readCatalogFilters,
+    serializeCatalogFilters,
   });
 
   globalThis.OrvaniCore = OrvaniCore;
