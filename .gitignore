@@ -1,9 +1,0 @@
-.worktrees/
-node_modules/
-.next/
-coverage/
-playwright-report/
-test-results/
-*.tsbuildinfo
-.env*
-!.env.example

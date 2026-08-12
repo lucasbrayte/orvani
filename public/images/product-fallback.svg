@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" role="img" aria-labelledby="title desc">
-  <title id="title">Imagem não disponível</title>
-  <desc id="desc">Composição geométrica abstrata da Orvani.</desc>
-  <rect width="800" height="600" rx="48" fill="#EEF0F8"/>
-  <circle cx="400" cy="275" r="112" fill="none" stroke="#635BFF" stroke-width="32" stroke-dasharray="470 235" transform="rotate(-28 400 275)"/>
-  <circle cx="480" cy="196" r="22" fill="#FF6B4A"/>
-  <path d="M462 214 338 338" stroke="#0B1020" stroke-width="16" stroke-linecap="round"/>
-  <text x="400" y="480" text-anchor="middle" font-family="system-ui,sans-serif" font-size="30" font-weight="700" fill="#0B1020">Imagem ilustrativa</text>
-</svg>
