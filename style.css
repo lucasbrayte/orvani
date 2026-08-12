@@ -507,8 +507,12 @@ main {
 }
 
 .featured-description {
+  display: -webkit-box;
   margin-bottom: 1.2rem;
+  overflow: hidden;
   color: var(--muted);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
 .featured-content .price-block {
@@ -842,12 +846,8 @@ main {
 .product-image-wrap img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  transition: transform 300ms ease;
-}
-
-.product-card:hover .product-image-wrap img {
-  transform: scale(1.025);
+  object-fit: contain;
+  object-position: center;
 }
 
 .product-card-body {
