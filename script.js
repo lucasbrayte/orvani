@@ -1,5 +1,5 @@
 const CONFIG = {
-  spreadsheetUrl: "COLE_AQUI_O_LINK_CSV_PUBLICADO_DO_GOOGLE_SHEETS",
+  spreadsheetUrl: "https://docs.google.com/spreadsheets/d/1oj0NbAkngUjjaYfJy5sEgzfDb7I0klHaUbvTzq6ZDB0/export?format=csv&gid=952991100",
   refreshIntervalMs: 300000,
   affiliatePartners: {
     amazon: {
@@ -21,6 +21,18 @@ const CONFIG = {
     shein: {
       label: "SHEIN",
       hosts: ["shein.com", "br.shein.com", "onelink.shein.com"],
+    },
+    magalu: {
+      label: "Magalu",
+      hosts: ["magazineluiza.com.br"],
+    },
+    natura: {
+      label: "Natura",
+      hosts: ["natura.com.br"],
+    },
+    hotmart: {
+      label: "Hotmart",
+      hosts: ["hotmart.com"],
     },
   },
 };
@@ -47,6 +59,29 @@ const CONFIG = {
     "link_afiliado",
     "destaque",
     "ativo",
+  ]);
+
+  const CURRENT_SHEET_HEADERS = Object.freeze([
+    "Ativo *",
+    "Tipo",
+    "Plataforma",
+    "Categoria",
+    "Subcategoria",
+    "Nome",
+    "Descrição",
+    "Preço *",
+    "Preço Promocional",
+    "Cupom",
+    "Validade da oferta",
+    "Link de Afiliado",
+    "Texto do Botão",
+    "Vídeo (URL YouTube)",
+    "Imagem 1 *",
+    "Imagem 2",
+    "Imagem 3",
+    "Imagem 4",
+    "Ordem",
+    "Destaque",
   ]);
 
   class RowValidationError extends Error {
@@ -156,7 +191,13 @@ const CONFIG = {
   }
 
   function validateImageUrl(raw) {
-    return parseHttpsUrl(raw)?.href ?? null;
+    const url = parseHttpsUrl(raw);
+    if (!url) return null;
+    if (url.hostname !== "drive.google.com") return url.href;
+
+    const match = /^\/file\/d\/([A-Za-z0-9_-]{10,})\/view\/?$/.exec(url.pathname);
+    if (!match) return null;
+    return `https://lh3.googleusercontent.com/d/${match[1]}=w960-h720`;
   }
 
   function validatePartnerUrl(raw, partnerKey) {
@@ -244,31 +285,136 @@ const CONFIG = {
     });
   }
 
+  function headerMatches(row, expected) {
+    if (!Array.isArray(row) || row.length !== expected.length) return false;
+    return expected.every((value, index) => String(row[index]).trim() === value);
+  }
+
+  function parseCurrentSheetBoolean(raw, field, { optional = false } = {}) {
+    const value = searchable(raw);
+    if (optional && value === "") return "FALSE";
+    if (value === "sim") return "TRUE";
+    if (value === "nao") return "FALSE";
+    throw new RowValidationError([field]);
+  }
+
+  function parseCurrentSheetPrice(raw, field, { optional = false } = {}) {
+    const value = String(raw ?? "").trim();
+    if (optional && value === "") return "";
+    if (/^(?:0|[1-9]\d*)[,.]\d{2}$/.test(value)) return value.replace(",", ".");
+    if (/^[1-9]\d{0,2}(?:\.\d{3})+,\d{2}$/.test(value)) {
+      return value.replace(/\./g, "").replace(",", ".");
+    }
+    throw new RowValidationError([field]);
+  }
+
+  function parseCurrentSheetType(raw) {
+    const value = searchable(raw);
+    if (value === "fisico" || value === "digital") return value;
+    throw new RowValidationError(["tipo"]);
+  }
+
+  function parseCurrentSheetPartner(raw) {
+    const value = searchable(raw).replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    const aliases = {
+      amazon: "amazon",
+      shopee: "shopee",
+      mercado_livre: "mercado_livre",
+      aliexpress: "aliexpress",
+      shein: "shein",
+      magalu: "magalu",
+      natura: "natura",
+      hotmart: "hotmart",
+    };
+    const partner = aliases[value];
+    if (!partner || !Object.hasOwn(CONFIG.affiliatePartners, partner)) {
+      throw new RowValidationError(["loja"]);
+    }
+    return partner;
+  }
+
+  function stableSheetId(name, affiliateUrl) {
+    const input = `${name}\n${affiliateUrl}`;
+    let hash = 2166136261;
+    for (let index = 0; index < input.length; index += 1) {
+      hash ^= input.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    const slug = categorySlug(name).slice(0, 48) || "produto";
+    return `sheet-${slug}-${(hash >>> 0).toString(36)}`;
+  }
+
+  function isCurrentSheetInstructionRow(record) {
+    return searchable(record["Ativo *"]) === "sim ou nao" && searchable(record.Nome) === "nome do produto";
+  }
+
+  function adaptCurrentSheetRecord(record) {
+    const name = required(record, "Nome");
+    const description = required(record, "Descrição");
+    const affiliateUrl = required(record, "Link de Afiliado");
+    const basePrice = parseCurrentSheetPrice(required(record, "Preço *"), "preco");
+    const promotionalPrice = parseCurrentSheetPrice(record["Preço Promocional"], "preco_anterior", {
+      optional: true,
+    });
+    const extraImages = [record["Imagem 2"], record["Imagem 3"], record["Imagem 4"]]
+      .map((value) => String(value ?? "").trim())
+      .filter(Boolean)
+      .join("|");
+
+    return {
+      id: stableSheetId(name, affiliateUrl),
+      nome: name,
+      descricao_curta: description,
+      descricao: description,
+      categoria: required(record, "Categoria"),
+      tipo: parseCurrentSheetType(record.Tipo),
+      preco: promotionalPrice || basePrice,
+      preco_anterior: promotionalPrice ? basePrice : "",
+      imagem: required(record, "Imagem 1 *"),
+      imagens: extraImages,
+      loja: parseCurrentSheetPartner(record.Plataforma),
+      link_afiliado: affiliateUrl,
+      destaque: parseCurrentSheetBoolean(record.Destaque, "destaque", { optional: true }),
+      ativo: parseCurrentSheetBoolean(record["Ativo *"], "ativo"),
+    };
+  }
+
   function normalizeRows(rows) {
     if (!Array.isArray(rows) || rows.length === 0) throw new Error("Cabeçalho CSV ausente.");
-    const header = rows[0].map((cell) => String(cell).trim());
-    const headerIsExact =
-      header.length === CSV_HEADERS.length &&
-      CSV_HEADERS.every((expected, index) => header[index] === expected);
-    if (!headerIsExact) throw new Error("Cabeçalho CSV inválido.");
+    const headerIndex = rows.findIndex(
+      (row) => headerMatches(row, CSV_HEADERS) || headerMatches(row, CURRENT_SHEET_HEADERS),
+    );
+    if (headerIndex === -1) throw new Error("Cabeçalho CSV inválido.");
+    const sourceHeaders = headerMatches(rows[headerIndex], CURRENT_SHEET_HEADERS)
+      ? CURRENT_SHEET_HEADERS
+      : CSV_HEADERS;
+    const isCurrentSheet = sourceHeaders === CURRENT_SHEET_HEADERS;
 
     const products = [];
     const rejected = [];
     const seenIds = new Set();
 
-    rows.slice(1).forEach((cells, index) => {
-      const rowNumber = index + 2;
+    rows.slice(headerIndex + 1).forEach((cells, index) => {
+      const rowNumber = headerIndex + index + 2;
       const values = Array.isArray(cells) ? cells : [];
-      const record = Object.fromEntries(
-        CSV_HEADERS.map((headerName, headerIndex) => [headerName, values[headerIndex] ?? ""]),
+      const sourceRecord = Object.fromEntries(
+        sourceHeaders.map((headerName, sourceIndex) => [headerName, values[sourceIndex] ?? ""]),
       );
-      const safeId = /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(String(record.id).trim())
-        ? String(record.id).trim()
-        : undefined;
+      if (values.every((value) => String(value).trim() === "")) return;
+      if (isCurrentSheet && isCurrentSheetInstructionRow(sourceRecord)) return;
+
+      let safeId;
       try {
-        if (values.length > CSV_HEADERS.length && values.slice(CSV_HEADERS.length).some(String)) {
+        if (
+          values.length > sourceHeaders.length &&
+          values.slice(sourceHeaders.length).some((value) => String(value).trim() !== "")
+        ) {
           throw new RowValidationError([]);
         }
+        const record = isCurrentSheet ? adaptCurrentSheetRecord(sourceRecord) : sourceRecord;
+        safeId = /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(String(record.id).trim())
+          ? String(record.id).trim()
+          : undefined;
         const product = normalizeProduct(record);
         if (seenIds.has(product.id)) throw new RowValidationError(["id"]);
         seenIds.add(product.id);
