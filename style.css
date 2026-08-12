@@ -548,16 +548,33 @@ main {
 }
 
 .carousel-indicator {
-  width: 0.6rem;
-  height: 0.6rem;
+  position: relative;
+  display: grid;
+  width: 1.5rem;
+  height: 1.5rem;
   padding: 0;
+  place-items: center;
   border-radius: 999px;
-  background: #b9bdca;
+  background: transparent;
+  transition: width 200ms ease, background-color 200ms ease;
+}
+
+.carousel-indicator::before {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: #a8adbd;
+  content: "";
   transition: width 200ms ease, background-color 200ms ease;
 }
 
 .carousel-indicator[aria-current="true"] {
-  width: 1.7rem;
+  width: 2rem;
+  background: transparent;
+}
+
+.carousel-indicator[aria-current="true"]::before {
+  width: 1.5rem;
   background: var(--brand);
 }
 
@@ -1419,6 +1436,52 @@ main {
   font-weight: 900;
 }
 
+.home-catalog-feedback {
+  width: min(100% - 2rem, var(--container));
+  margin: 1.25rem auto 0;
+}
+
+.home-catalog-feedback:not(:has(> :not([hidden]))) {
+  display: none;
+}
+
+.home-catalog-feedback .catalog-state {
+  min-height: 6rem;
+  grid-auto-flow: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.8rem;
+}
+
+.home-catalog-feedback .catalog-state p {
+  margin: 0;
+}
+
+.home-catalog-feedback .loading-spinner {
+  width: 1.7rem;
+  height: 1.7rem;
+}
+
+.home-catalog-feedback .feedback-panel {
+  min-height: 0;
+  align-items: flex-start;
+  padding: 1.25rem;
+  text-align: left;
+}
+
+.home-catalog-feedback .feedback-panel h3 {
+  font-size: 1.25rem;
+}
+
+.home-catalog-feedback .feedback-panel > p:not(.feedback-kicker) {
+  max-width: none;
+}
+
+.home-catalog-feedback > .demo-note {
+  display: inline-flex;
+  margin: 0;
+}
+
 /* ========================================================================== */
 /* Home: categorias, benefícios, processo e chamada final                    */
 /* ========================================================================== */
@@ -2035,6 +2098,10 @@ main {
 @media (min-width: 38rem) {
   .hero-inner,
   .catalog-hero-inner {
+    width: min(100% - 3rem, var(--container));
+  }
+
+  .home-catalog-feedback {
     width: min(100% - 3rem, var(--container));
   }
 

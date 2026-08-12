@@ -28,6 +28,10 @@ const CONFIG = {
 (() => {
   "use strict";
 
+  // -----------------------------------------------------------------------
+  // Domínio do catálogo: CSV, normalização e URLs externas
+  // -----------------------------------------------------------------------
+
   const CSV_HEADERS = Object.freeze([
     "id",
     "nome",
@@ -297,6 +301,10 @@ const CONFIG = {
     return Math.round(((previousPrice - currentPrice) / previousPrice) * 100);
   }
 
+  // -----------------------------------------------------------------------
+  // Busca e estado compartilhável do catálogo
+  // -----------------------------------------------------------------------
+
   function searchable(value) {
     return String(value ?? "")
       .normalize("NFD")
@@ -366,6 +374,10 @@ const CONFIG = {
     });
   }
 
+  // -----------------------------------------------------------------------
+  // Dados públicos de demonstração
+  // -----------------------------------------------------------------------
+
   function demoImage(label, accent) {
     const safeLabel = String(label).replace(/[<>&"']/g, "");
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="960" height="720" viewBox="0 0 960 720"><rect width="960" height="720" rx="48" fill="#eef0ff"/><circle cx="720" cy="170" r="170" fill="${accent}" opacity=".17"/><circle cx="230" cy="570" r="210" fill="#635BFF" opacity=".12"/><path d="M290 220h380a56 56 0 0 1 56 56v168a56 56 0 0 1-56 56H290a56 56 0 0 1-56-56V276a56 56 0 0 1 56-56Z" fill="#fff" stroke="#0B1020" stroke-width="14"/><text x="480" y="375" text-anchor="middle" font-family="system-ui,sans-serif" font-size="44" font-weight="700" fill="#0B1020">${safeLabel}</text></svg>`;
@@ -421,6 +433,10 @@ const CONFIG = {
   globalThis.OrvaniCore = OrvaniCore;
 
   if (typeof document !== "undefined") {
+    // ---------------------------------------------------------------------
+    // Estado e primitivas seguras de interface
+    // ---------------------------------------------------------------------
+
     const currencyFormatter = new Intl.NumberFormat("pt-BR", {
       style: "currency",
       currency: "BRL",
@@ -570,6 +586,10 @@ const CONFIG = {
       controls.hidden = featured.length <= 1;
       if (featured.length > 0) carouselController = createCarousel(featured);
     }
+
+    // ---------------------------------------------------------------------
+    // Carrossel acessível
+    // ---------------------------------------------------------------------
 
     function createCarousel(products) {
       const root = document.querySelector("#featured-carousel");
@@ -787,6 +807,10 @@ const CONFIG = {
       updateCatalogUrl("replace");
     }
 
+    // ---------------------------------------------------------------------
+    // Renderização e filtros do catálogo
+    // ---------------------------------------------------------------------
+
     function setVisibility(selector, visible) {
       const node = document.querySelector(selector);
       if (node) node.hidden = !visible;
@@ -834,6 +858,10 @@ const CONFIG = {
       if (document.body.dataset.page === "home") renderHome(activeProducts);
       if (document.body.dataset.page === "catalogo") renderCatalog(activeProducts);
     }
+
+    // ---------------------------------------------------------------------
+    // Carregamento e atualização da planilha
+    // ---------------------------------------------------------------------
 
     function isDemoConfiguration() {
       return CONFIG.spreadsheetUrl === "COLE_AQUI_O_LINK_CSV_PUBLICADO_DO_GOOGLE_SHEETS";
@@ -1008,6 +1036,10 @@ const CONFIG = {
       applyCatalogFilters();
     }
 
+    // ---------------------------------------------------------------------
+    // Navegação, diálogos e bindings compartilhados
+    // ---------------------------------------------------------------------
+
     function bindCatalogLoading() {
       document.querySelector("#retry-button")?.addEventListener("click", () => {
         loadCatalog({ background: hasActiveCatalog() });
@@ -1102,6 +1134,10 @@ const CONFIG = {
         });
       });
     }
+
+    // ---------------------------------------------------------------------
+    // Movimento, navegação e inicialização por página
+    // ---------------------------------------------------------------------
 
     function observeReveals(scope = document) {
       const nodes = scope.querySelectorAll?.(".reveal:not(.is-visible)") ?? [];

@@ -89,7 +89,7 @@
             </ul>
           </div>
 
-          <div class="hero-showcase reveal" aria-label="Prévia do catálogo">
+          <div class="hero-showcase reveal" role="img" aria-label="Prévia visual de três produtos do catálogo">
             <div class="hero-product-stack" id="hero-product-stack"></div>
             <div class="hero-orbit" aria-hidden="true">
               <span class="hero-orbit-ring"></span>
@@ -98,6 +98,20 @@
           </div>
         </div>
       </section>
+
+      <div class="home-catalog-feedback" aria-label="Status de atualização do catálogo">
+        <div class="catalog-state" id="catalog-state" role="status" aria-live="polite">
+          <span class="loading-spinner" aria-hidden="true"></span>
+          <p>Carregando produtos…</p>
+        </div>
+        <div class="feedback-panel error-panel" id="load-error" role="alert" hidden>
+          <p class="feedback-kicker">Não foi possível atualizar</p>
+          <h3 id="load-error-title">O catálogo está temporariamente indisponível.</h3>
+          <p id="load-error-copy">Verifique sua conexão e tente novamente em instantes.</p>
+          <button class="button button-primary" id="retry-button" type="button">Tentar novamente</button>
+        </div>
+        <p class="demo-note" id="demo-note" hidden>Dados fictícios para demonstração</p>
+      </div>
 
       <section class="section featured-section" id="destaques" aria-labelledby="featured-title">
         <div class="section-heading reveal">
