@@ -42,8 +42,8 @@ export function FeaturedCarousel({ products }: { products: PublicProduct[] }) {
       <div className="section-heading">
         <div><span className="section-kicker section-kicker--offer">Em destaque</span><h2>Ofertas que merecem atenção</h2></div>
         <div className="carousel-controls">
-          <button type="button" onClick={() => api?.scrollPrev()} disabled={selectedIndex === 0} aria-label="Oferta anterior">←</button>
-          <button type="button" onClick={() => api?.scrollNext()} disabled={selectedIndex >= snapCount - 1} aria-label="Próxima oferta">→</button>
+          <button type="button" onClick={() => api?.scrollPrev()} disabled={!api || selectedIndex === 0} aria-label="Oferta anterior">←</button>
+          <button type="button" onClick={() => api?.scrollNext()} disabled={!api || selectedIndex >= snapCount - 1} aria-label="Próxima oferta">→</button>
         </div>
       </div>
       <div className="embla" ref={viewportRef}>
@@ -57,7 +57,7 @@ export function FeaturedCarousel({ products }: { products: PublicProduct[] }) {
       </div>
       <div className="carousel-dots" aria-label="Escolher oferta">
         {Array.from({ length: snapCount }, (_, index) => (
-          <button key={index} type="button" aria-label={`Ir para oferta ${index + 1}`} aria-current={selectedIndex === index ? "true" : undefined} onClick={() => api?.scrollTo(index)} />
+          <button key={index} type="button" disabled={!api} aria-label={`Ir para oferta ${index + 1}`} aria-current={selectedIndex === index ? "true" : undefined} onClick={() => api?.scrollTo(index)} />
         ))}
       </div>
       <p className="sr-only" aria-live="polite">Oferta {selectedIndex + 1} de {snapCount}</p>

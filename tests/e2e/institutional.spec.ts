@@ -11,9 +11,9 @@ const pages = [
 test.describe("institutional pages", () => {
   for (const [path, heading] of pages) {
     test(`${path} has a unique heading and canonical URL`, async ({ page }) => {
-    await page.goto(path);
-    await expect(page.getByRole("heading", { level: 1, name: heading })).toBeVisible();
-    await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", new RegExp(path));
+      await page.goto(path);
+      await expect(page.getByRole("heading", { level: 1, name: heading })).toBeVisible();
+      await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", new RegExp(path));
       if (path === "/transparencia") {
         await expect(page.getByText(/a orvani pode receber uma comissão/i)).toBeVisible();
         await expect(page.getByText(/não vende, não processa pagamentos/i)).toBeVisible();

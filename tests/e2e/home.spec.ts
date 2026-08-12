@@ -10,6 +10,7 @@ test("home explains the service and exposes keyboard-operable highlights", async
   const carousel = page.getByRole("region", { name: /ofertas em destaque/i });
   const next = carousel.getByRole("button", { name: /próxima oferta/i });
   await expect(next).toBeVisible();
+  await expect(next).toBeEnabled();
   await next.focus();
   await page.keyboard.press("Enter");
   await expect(carousel).toHaveAttribute("data-index", "1");

@@ -473,7 +473,7 @@ a {
 }
 
 .section-kicker {
-  color: #635bff;
+  color: #5148e1;
   font-size: 0.72rem;
   font-weight: 850;
   letter-spacing: 0.12em;
@@ -481,7 +481,7 @@ a {
 }
 
 .section-kicker--offer {
-  color: #d74627;
+  color: #bd3218;
 }
 
 .category-section {
@@ -517,7 +517,7 @@ a {
 }
 
 .category-grid__number {
-  color: #9aa0b2;
+  color: #62697b;
   font-size: 0.7rem;
   font-weight: 800;
 }
@@ -534,7 +534,7 @@ a {
 
 .category-grid small {
   margin-top: 0.3rem;
-  color: #797f91;
+  color: #62697b;
   font-size: 0.75rem;
 }
 
@@ -593,15 +593,27 @@ a {
 }
 
 .carousel-dots button {
-  width: 0.48rem;
-  height: 0.48rem;
+  position: relative;
+  width: 1.5rem;
+  height: 1.5rem;
   border-radius: 50%;
-  background: rgb(11 16 32 / 24%);
+  background: transparent;
   padding: 0;
 }
 
-.carousel-dots button[aria-current="true"] {
-  width: 1.65rem;
+.carousel-dots button::after {
+  position: absolute;
+  width: 0.48rem;
+  height: 0.48rem;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: rgb(11 16 32 / 40%);
+  content: "";
+}
+
+.carousel-dots button[aria-current="true"]::after {
+  width: 1.3rem;
   border-radius: 999px;
   background: #635bff;
 }
@@ -666,7 +678,7 @@ a {
 }
 
 .partner-badge {
-  color: #635bff;
+  color: #5148e1;
   font-size: 0.69rem;
   font-weight: 850;
   letter-spacing: 0.06em;
@@ -716,7 +728,7 @@ a {
 }
 
 .price-block del {
-  color: #8c92a3;
+  color: #62697b;
   font-size: 0.72rem;
 }
 
@@ -764,7 +776,7 @@ a {
 }
 
 .affiliate-note .section-kicker {
-  color: #dcd9ff;
+  color: #fff;
 }
 
 .affiliate-note h2 {
@@ -774,7 +786,7 @@ a {
 
 .affiliate-note > p {
   margin: 0;
-  color: #e0deff;
+  color: #fff;
   font-size: 0.9rem;
   line-height: 1.7;
 }
@@ -1003,7 +1015,7 @@ a {
 .price-range label span {
   display: block;
   margin-bottom: 0.35rem;
-  color: #7b8193;
+  color: #62697b;
   font-size: 0.65rem;
 }
 
@@ -1023,7 +1035,7 @@ a {
 }
 
 .catalog-results__heading span {
-  color: #635bff;
+  color: #5148e1;
   font-size: 0.7rem;
   font-weight: 800;
   letter-spacing: 0.08em;
@@ -1222,7 +1234,7 @@ a {
   align-items: center;
   overflow: hidden;
   padding-block: 1.4rem;
-  color: #7b8193;
+  color: #62697b;
   font-size: 0.72rem;
   white-space: nowrap;
 }
@@ -1290,7 +1302,7 @@ a {
 }
 
 .product-detail__labels > span:last-child {
-  color: #7a8092;
+  color: #62697b;
   font-size: 0.7rem;
   font-weight: 750;
 }
@@ -1358,7 +1370,7 @@ a {
 }
 
 .product-facts dt {
-  color: #7c8293;
+  color: #5f6678;
   font-size: 0.62rem;
   font-weight: 750;
   text-transform: uppercase;
@@ -1378,7 +1390,7 @@ a {
 
 .redirect-notice {
   margin: 0.8rem 0 1.2rem;
-  color: #73798b;
+  color: #62697b;
   font-size: 0.7rem;
   line-height: 1.5;
   text-align: center;
@@ -1539,7 +1551,7 @@ a {
 }
 
 .not-found > span {
-  color: #635bff;
+  color: #5148e1;
   font-family: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
   font-size: 1rem;
   font-weight: 850;

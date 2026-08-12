@@ -16,6 +16,10 @@ const nextConfig: NextConfig = {
         source: "/(.*)",
         headers: buildSecurityHeaders(process.env.NODE_ENV === "production"),
       },
+      {
+        source: "/go/:path*",
+        headers: [{ key: "Referrer-Policy", value: "no-referrer" }],
+      },
     ];
   },
 };
