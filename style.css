@@ -244,6 +244,16 @@ h3,
   border-radius: var(--radius-md);
   background: var(--surface);
   box-shadow: var(--shadow-md);
+  opacity: 0;
+  transform: translateY(-0.6rem);
+  pointer-events: none;
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.mobile-menu.is-open {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
 }
 
 .mobile-menu a {
@@ -444,7 +454,12 @@ main {
   border-radius: var(--radius-lg);
   background: var(--surface);
   box-shadow: var(--shadow-md);
+  cursor: grab;
   touch-action: pan-y;
+}
+
+.carousel-viewport.is-dragging {
+  cursor: grabbing;
 }
 
 .carousel-track {
@@ -932,6 +947,17 @@ main {
 .reveal {
   opacity: 1;
   transform: none;
+}
+
+.motion-ready .reveal:not(.is-visible) {
+  opacity: 0;
+  transform: translateY(1.25rem);
+}
+
+.motion-ready .reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 520ms ease, transform 520ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @media (min-width: 38rem) {

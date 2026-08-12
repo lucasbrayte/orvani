@@ -393,6 +393,9 @@ const CONFIG = {
       filters: { query: "", category: "", type: "" },
       demo: false,
     };
+    const reducedMotionQuery = globalThis.matchMedia("(prefers-reduced-motion: reduce)");
+    let carouselController = null;
+    let revealObserver = null;
 
     function element(tagName, className, text) {
       const node = document.createElement(tagName);
@@ -486,8 +489,11 @@ const CONFIG = {
       const controls = document.querySelector("#carousel-controls");
       const indicators = document.querySelector("#carousel-indicators");
       if (!section || !track || !controls || !indicators) return;
+      carouselController?.destroy();
+      carouselController = null;
       section.hidden = featured.length === 0;
-      track.replaceChildren(...featured.map(createFeaturedSlide));
+      track.replaceChildren(...featured.map((product, index) =>
+        createFeaturedSlide(product, index, featured.length)));
       indicators.replaceChildren(...featured.map((product, index) => {
         const button = element("button", "carousel-indicator");
         button.type = "button";
@@ -496,6 +502,170 @@ const CONFIG = {
         return button;
       }));
       controls.hidden = featured.length <= 1;
+      if (featured.length > 0) carouselController = createCarousel(featured);
+    }
+
+    function createCarousel(products) {
+      const root = document.querySelector("#featured-carousel");
+      const viewport = document.querySelector("#carousel-viewport");
+      const track = document.querySelector("#carousel-track");
+      const previousButton = document.querySelector("#carousel-prev");
+      const nextButton = document.querySelector("#carousel-next");
+      const live = document.querySelector("#carousel-live");
+      if (!root || !viewport || !track || !previousButton || !nextButton || !live) {
+        return { destroy() {} };
+      }
+
+      const slides = [...track.querySelectorAll(".carousel-slide")];
+      const indicators = [...root.querySelectorAll(".carousel-indicator")];
+      const pauseReasons = new Set();
+      let currentIndex = 0;
+      let timer = null;
+      let pointerId = null;
+      let pointerStartX = 0;
+      let pointerDeltaX = 0;
+
+      root.tabIndex = 0;
+
+      function clearTimer() {
+        if (timer !== null) globalThis.clearTimeout(timer);
+        timer = null;
+      }
+
+      function schedule() {
+        clearTimer();
+        if (slides.length <= 1 || reducedMotionQuery.matches || pauseReasons.size > 0) return;
+        timer = globalThis.setTimeout(() => {
+          goTo(currentIndex + 1, { userInitiated: false });
+          schedule();
+        }, 6000);
+      }
+
+      function update({ userInitiated = false } = {}) {
+        root.dataset.carouselIndex = String(currentIndex);
+        track.style.transform = `translate3d(${-currentIndex * 100}%, 0, 0)`;
+        slides.forEach((slide, index) => {
+          const active = index === currentIndex;
+          slide.setAttribute("aria-hidden", String(!active));
+          slide.toggleAttribute("inert", !active);
+        });
+        indicators.forEach((indicator, index) => {
+          if (index === currentIndex) indicator.setAttribute("aria-current", "true");
+          else indicator.removeAttribute("aria-current");
+        });
+        if (userInitiated) live.textContent = `${products[currentIndex].name}, destaque ${currentIndex + 1} de ${slides.length}`;
+      }
+
+      function goTo(index, { userInitiated = true } = {}) {
+        currentIndex = (index + slides.length) % slides.length;
+        update({ userInitiated });
+        if (userInitiated) schedule();
+      }
+
+      function pause(reason) {
+        pauseReasons.add(reason);
+        clearTimer();
+      }
+
+      function resume(reason) {
+        pauseReasons.delete(reason);
+        schedule();
+      }
+
+      const onPrevious = () => goTo(currentIndex - 1);
+      const onNext = () => goTo(currentIndex + 1);
+      const onKeydown = (event) => {
+        if (event.key === "ArrowLeft") {
+          event.preventDefault();
+          goTo(currentIndex - 1);
+        } else if (event.key === "ArrowRight") {
+          event.preventDefault();
+          goTo(currentIndex + 1);
+        }
+      };
+      const onMouseEnter = () => pause("hover");
+      const onMouseLeave = () => resume("hover");
+      const onFocusIn = () => pause("focus");
+      const onFocusOut = (event) => {
+        if (!root.contains(event.relatedTarget)) resume("focus");
+      };
+      const onPointerDown = (event) => {
+        if (slides.length <= 1) return;
+        pointerId = event.pointerId;
+        pointerStartX = event.clientX;
+        pointerDeltaX = 0;
+        viewport.setPointerCapture?.(pointerId);
+        viewport.classList.add("is-dragging");
+        pause("pointer");
+      };
+      const onPointerMove = (event) => {
+        if (event.pointerId !== pointerId) return;
+        pointerDeltaX = event.clientX - pointerStartX;
+        if (Math.abs(pointerDeltaX) > 8) event.preventDefault();
+      };
+      const finishPointer = (event) => {
+        if (event.pointerId !== pointerId) return;
+        if (Math.abs(pointerDeltaX) >= 48) {
+          goTo(currentIndex + (pointerDeltaX < 0 ? 1 : -1));
+        }
+        viewport.releasePointerCapture?.(pointerId);
+        viewport.classList.remove("is-dragging");
+        pointerId = null;
+        pointerDeltaX = 0;
+        resume("pointer");
+      };
+      const onVisibilityChange = () => {
+        if (document.hidden) pause("visibility");
+        else resume("visibility");
+      };
+      const onMotionChange = () => {
+        if (reducedMotionQuery.matches) pause("motion");
+        else resume("motion");
+      };
+
+      previousButton.addEventListener("click", onPrevious);
+      nextButton.addEventListener("click", onNext);
+      indicators.forEach((indicator, index) => {
+        indicator.addEventListener("click", () => goTo(index));
+      });
+      root.addEventListener("keydown", onKeydown);
+      root.addEventListener("mouseenter", onMouseEnter);
+      root.addEventListener("mouseleave", onMouseLeave);
+      root.addEventListener("focusin", onFocusIn);
+      root.addEventListener("focusout", onFocusOut);
+      viewport.addEventListener("pointerdown", onPointerDown);
+      viewport.addEventListener("pointermove", onPointerMove);
+      viewport.addEventListener("pointerup", finishPointer);
+      viewport.addEventListener("pointercancel", finishPointer);
+      document.addEventListener("visibilitychange", onVisibilityChange);
+      reducedMotionQuery.addEventListener?.("change", onMotionChange);
+
+      update();
+      schedule();
+
+      return {
+        goTo,
+        next: onNext,
+        previous: onPrevious,
+        pause,
+        resume,
+        destroy() {
+          clearTimer();
+          previousButton.removeEventListener("click", onPrevious);
+          nextButton.removeEventListener("click", onNext);
+          root.removeEventListener("keydown", onKeydown);
+          root.removeEventListener("mouseenter", onMouseEnter);
+          root.removeEventListener("mouseleave", onMouseLeave);
+          root.removeEventListener("focusin", onFocusIn);
+          root.removeEventListener("focusout", onFocusOut);
+          viewport.removeEventListener("pointerdown", onPointerDown);
+          viewport.removeEventListener("pointermove", onPointerMove);
+          viewport.removeEventListener("pointerup", finishPointer);
+          viewport.removeEventListener("pointercancel", finishPointer);
+          document.removeEventListener("visibilitychange", onVisibilityChange);
+          reducedMotionQuery.removeEventListener?.("change", onMotionChange);
+        },
+      };
     }
 
     function categoriesFrom(products) {
@@ -554,6 +724,7 @@ const CONFIG = {
       setVisibility("#no-results", activeProducts.length > 0 && filtered.length === 0);
       setVisibility("#empty-catalog", activeProducts.length === 0);
       setVisibility("#product-grid", filtered.length > 0);
+      observeReveals(grid);
     }
 
     function setProducts(products, { demo = false } = {}) {
@@ -602,8 +773,80 @@ const CONFIG = {
       });
     }
 
+    function setupMobileMenu() {
+      const toggle = document.querySelector("#menu-toggle");
+      const menu = document.querySelector("#mobile-menu");
+      if (!toggle || !menu) return;
+      let closingTimer = null;
+
+      function openMenu() {
+        if (closingTimer !== null) globalThis.clearTimeout(closingTimer);
+        menu.hidden = false;
+        toggle.setAttribute("aria-expanded", "true");
+        toggle.setAttribute("aria-label", "Fechar menu");
+        globalThis.requestAnimationFrame(() => menu.classList.add("is-open"));
+      }
+
+      function closeMenu({ restoreFocus = false } = {}) {
+        menu.classList.remove("is-open");
+        toggle.setAttribute("aria-expanded", "false");
+        toggle.setAttribute("aria-label", "Abrir menu");
+        if (closingTimer !== null) globalThis.clearTimeout(closingTimer);
+        if (reducedMotionQuery.matches) menu.hidden = true;
+        else closingTimer = globalThis.setTimeout(() => { menu.hidden = true; }, 180);
+        if (restoreFocus) toggle.focus();
+      }
+
+      toggle.addEventListener("click", () => {
+        if (toggle.getAttribute("aria-expanded") === "true") closeMenu();
+        else openMenu();
+      });
+      menu.querySelectorAll("a").forEach((link) => link.addEventListener("click", () => closeMenu()));
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && toggle.getAttribute("aria-expanded") === "true") {
+          closeMenu({ restoreFocus: true });
+        }
+      });
+      document.addEventListener("pointerdown", (event) => {
+        if (
+          toggle.getAttribute("aria-expanded") === "true" &&
+          !menu.contains(event.target) &&
+          !toggle.contains(event.target)
+        ) {
+          closeMenu();
+        }
+      });
+    }
+
+    function observeReveals(scope = document) {
+      const nodes = scope.querySelectorAll?.(".reveal:not(.is-visible)") ?? [];
+      if (reducedMotionQuery.matches || !revealObserver) {
+        nodes.forEach((node) => node.classList.add("is-visible"));
+        return;
+      }
+      nodes.forEach((node) => revealObserver.observe(node));
+    }
+
+    function setupRevealObserver() {
+      if (reducedMotionQuery.matches || !("IntersectionObserver" in globalThis)) {
+        observeReveals(document);
+        return;
+      }
+      document.body.classList.add("motion-ready");
+      revealObserver = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+          entry.target.classList.add("is-visible");
+          revealObserver.unobserve(entry.target);
+        });
+      }, { rootMargin: "0px 0px -8%", threshold: 0.08 });
+      observeReveals(document);
+    }
+
     function initializeApp() {
       bindFilters();
+      setupMobileMenu();
+      setupRevealObserver();
       setProducts(DEMO_PRODUCTS, { demo: true });
     }
 
