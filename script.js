@@ -341,6 +341,10 @@ const CONFIG = {
     return CONFIG.affiliatePartners[partnerKey]?.label ?? partnerKey;
   }
 
+  function typeLabel(type) {
+    return type === "digital" ? "Digital" : "Físico";
+  }
+
   function filterProducts(products, filters = {}) {
     const queryTokens = searchable(filters.query).split(" ").filter(Boolean);
     const category = searchable(filters.category);
@@ -408,6 +412,7 @@ const CONFIG = {
     calculateDiscount,
     filterProducts,
     partnerLabel,
+    typeLabel,
     categorySlug,
     readCatalogFilters,
     serializeCatalogFilters,
@@ -490,6 +495,7 @@ const CONFIG = {
       const meta = element("div", "product-meta");
       meta.append(
         element("span", "category-label", product.category),
+        element("span", "type-label", typeLabel(product.type)),
         element("span", "partner-label", partnerLabel(product.partner)),
       );
       const title = element("h3", "product-title", product.name);
@@ -517,6 +523,28 @@ const CONFIG = {
       );
       slide.append(productImage(product, { eager: index === 0 }), content);
       return slide;
+    }
+
+    function createHeroProductCard(product, index) {
+      const card = element("article", `hero-product-card hero-product-card-${index + 1}`);
+      card.setAttribute("aria-hidden", "true");
+      card.append(productImage(product, { eager: true }));
+      const body = element("div", "hero-product-card-body");
+      body.append(
+        element("span", "hero-product-category", product.category),
+        element("strong", "hero-product-name", product.name),
+        element("span", "hero-product-price", currencyFormatter.format(product.currentPrice)),
+      );
+      card.append(body);
+      return card;
+    }
+
+    function renderHeroProducts(products) {
+      const stack = document.querySelector("#hero-product-stack");
+      if (!stack) return;
+      const featured = products.filter((product) => product.featured);
+      const preview = [...featured, ...products.filter((product) => !product.featured)].slice(0, 3);
+      stack.replaceChildren(...preview.map(createHeroProductCard));
     }
 
     function renderFeatured(products) {
@@ -713,28 +741,27 @@ const CONFIG = {
     function renderCategories(products) {
       const categories = categoriesFrom(products);
       const list = document.querySelector("#category-list");
-      const select = document.querySelector("#category-filter");
-      if (!list || !select) return;
+      if (!list) return;
 
       list.replaceChildren(...categories.map((category) => {
         const count = products.filter((product) => product.category === category).length;
-        const button = element("button", "category-chip");
-        button.type = "button";
-        button.dataset.category = category;
-        button.append(
+        const link = element("a", "category-chip");
+        link.href = `catalogo.html?categoria=${encodeURIComponent(categorySlug(category))}`;
+        link.append(
+          element("span", "category-chip-icon", "◇"),
           element("span", "category-chip-name", category),
-          element("span", "category-chip-count", String(count)),
+          element("span", "category-chip-count", `${count} ${count === 1 ? "item" : "itens"}`),
+          element("span", "category-chip-arrow", "→"),
         );
-        button.addEventListener("click", () => {
-          state.filters.category = category;
-          select.value = category;
-          renderFilteredProducts();
-          document.querySelector("#catalogo")?.scrollIntoView({ block: "start" });
-        });
-        return button;
+        return link;
       }));
+    }
 
-      const allOption = element("option", "", "Todas");
+    function renderCategoryFilter(products) {
+      const select = document.querySelector("#category-filter");
+      if (!select) return;
+      const categories = categoriesFrom(products);
+      const allOption = element("option", "", "Todas as categorias");
       allOption.value = "";
       select.replaceChildren(allOption, ...categories.map((category) => {
         const option = element("option", "", category);
@@ -742,6 +769,19 @@ const CONFIG = {
         return option;
       }));
       select.value = state.filters.category;
+    }
+
+    function renderHome(products) {
+      renderHeroProducts(products);
+      renderFeatured(products);
+      renderCategories(products);
+    }
+
+    function renderCatalog(products) {
+      const total = document.querySelector("#catalog-total");
+      if (total) total.textContent = String(products.length);
+      renderCategoryFilter(products);
+      renderFilteredProducts();
     }
 
     function setVisibility(selector, visible) {
@@ -782,9 +822,8 @@ const CONFIG = {
       setVisibility("#load-error", false);
       setVisibility("#demo-note", demo);
       const activeProducts = state.products.filter((product) => product.active);
-      renderFeatured(activeProducts);
-      renderCategories(activeProducts);
-      renderFilteredProducts();
+      if (document.body.dataset.page === "home") renderHome(activeProducts);
+      if (document.body.dataset.page === "catalogo") renderCatalog(activeProducts);
     }
 
     function isDemoConfiguration() {
@@ -1007,15 +1046,35 @@ const CONFIG = {
       observeReveals(document);
     }
 
-    function initializeApp() {
-      bindFilters();
+    function initializeSharedUi() {
       bindCatalogLoading();
       setupMobileMenu();
       setupRevealObserver();
+    }
+
+    function initializeHomePage() {}
+
+    function initializeCatalogPage() {
+      bindFilters();
+    }
+
+    function initializeApp() {
+      initializeSharedUi();
+      if (document.body.dataset.page === "home") initializeHomePage();
+      if (document.body.dataset.page === "catalogo") initializeCatalogPage();
       loadCatalog();
     }
 
-    globalThis.OrvaniApp = Object.freeze({ loadCatalog, setProducts, renderFilteredProducts });
+    globalThis.OrvaniApp = Object.freeze({
+      loadCatalog,
+      setProducts,
+      renderFilteredProducts,
+      renderHome,
+      renderCatalog,
+      initializeSharedUi,
+      initializeHomePage,
+      initializeCatalogPage,
+    });
     if (document.readyState === "loading") {
       document.addEventListener("DOMContentLoaded", initializeApp, { once: true });
     } else {
