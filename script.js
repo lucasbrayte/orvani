@@ -1,6 +1,6 @@
 const CONFIG = {
   spreadsheetUrl: "https://docs.google.com/spreadsheets/d/1oj0NbAkngUjjaYfJy5sEgzfDb7I0klHaUbvTzq6ZDB0/export?format=csv&gid=952991100",
-  refreshIntervalMs: 300000,
+  refreshIntervalMs: 30000,
   affiliatePartners: {
     amazon: {
       label: "Amazon",
