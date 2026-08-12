@@ -30,7 +30,11 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang={siteIdentity.locale} className={`${inter.variable} ${manrope.variable}`}>
+    <html
+      lang={siteIdentity.locale}
+      className={`${inter.variable} ${manrope.variable}`}
+      data-scroll-behavior="smooth"
+    >
       <body>
         <a className="skip-link" href="#conteudo">
           Pular para o conteúdo

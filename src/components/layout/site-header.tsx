@@ -18,7 +18,7 @@ export function SiteHeader() {
         </nav>
         <form className="header-search" action="/catalogo" role="search">
           <label className="sr-only" htmlFor="header-search">
-            Buscar produtos
+            Buscar no catálogo
           </label>
           <input id="header-search" name="q" type="search" placeholder="O que você procura?" />
           <button type="submit" aria-label="Buscar">
