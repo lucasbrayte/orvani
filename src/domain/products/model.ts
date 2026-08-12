@@ -31,6 +31,7 @@ export type Product = {
 
 export type PublicProduct = Omit<Product, "affiliateUrl">;
 
-export function toPublicProduct({ affiliateUrl: _affiliateUrl, ...product }: Product): PublicProduct {
+export function toPublicProduct({ affiliateUrl, ...product }: Product): PublicProduct {
+  void affiliateUrl;
   return product;
 }

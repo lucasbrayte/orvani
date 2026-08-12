@@ -19,9 +19,10 @@ export function FeaturedCarousel({ products }: { products: PublicProduct[] }) {
 
   useEffect(() => {
     if (!api) return;
-    update();
+    const animationFrame = requestAnimationFrame(update);
     api.on("select", update).on("reInit", update);
     return () => {
+      cancelAnimationFrame(animationFrame);
       api.off("select", update).off("reInit", update);
     };
   }, [api, update]);
