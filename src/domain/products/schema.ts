@@ -4,7 +4,7 @@ import { partners, productTypes, stockStatuses } from "./model";
 
 const safeText = z.string().trim().min(1).max(5_000);
 
-export const productSchema = z.object({
+const productObjectSchema = z.object({
   id: z.string().trim().min(1).max(120).regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/),
   name: safeText.max(180),
   slug: z.string().min(1).max(180).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
@@ -24,7 +24,9 @@ export const productSchema = z.object({
   stockStatus: z.enum(stockStatuses),
   tags: z.array(z.string().trim().min(1).max(80)).max(30),
   updatedAt: z.iso.datetime({ offset: true }),
-}).superRefine((product, context) => {
+});
+
+export const productSchema = productObjectSchema.superRefine((product, context) => {
   if (product.previousPrice !== null && product.previousPrice <= product.currentPrice) {
     context.addIssue({
       code: "custom",
@@ -34,4 +36,14 @@ export const productSchema = z.object({
   }
 });
 
-export const publicProductSchema = productSchema.omit({ affiliateUrl: true });
+export const publicProductSchema = productObjectSchema
+  .omit({ affiliateUrl: true })
+  .superRefine((product, context) => {
+    if (product.previousPrice !== null && product.previousPrice <= product.currentPrice) {
+      context.addIssue({
+        code: "custom",
+        path: ["previousPrice"],
+        message: "O preço anterior deve ser maior que o preço atual.",
+      });
+    }
+  });
