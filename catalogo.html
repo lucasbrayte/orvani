@@ -11,14 +11,14 @@
     >
     <meta
       name="description"
-      content="Descubra produtos físicos e digitais selecionados em lojas parceiras com a curadoria clara da Orvani."
+      content="Explore o catálogo completo da Orvani e encontre produtos físicos e digitais de lojas parceiras."
     >
-    <title>Orvani — Boas escolhas em um só lugar</title>
+    <title>Catálogo — Orvani</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='14' fill='%23635BFF'/%3E%3Ccircle cx='24' cy='24' r='10' fill='none' stroke='white' stroke-width='5'/%3E%3Cpath d='m33 24 8-5' stroke='white' stroke-width='5' stroke-linecap='round'/%3E%3C/svg%3E">
     <link rel="stylesheet" href="style.css">
     <script src="script.js" defer></script>
   </head>
-  <body data-page="home">
+  <body data-page="catalogo">
     <a class="skip-link" href="#main-content">Pular para o conteúdo</a>
 
     <header class="site-header" id="site-header">
@@ -33,13 +33,13 @@
         </a>
 
         <nav class="desktop-navigation" aria-label="Navegação principal">
-          <a href="index.html" aria-current="page">Início</a>
-          <a href="catalogo.html">Catálogo</a>
+          <a href="index.html">Início</a>
+          <a href="catalogo.html" aria-current="page">Catálogo</a>
           <a href="index.html#categorias">Categorias</a>
           <a href="index.html#destaques">Destaques</a>
         </nav>
 
-        <a class="button button-small header-cta" href="catalogo.html">Explorar catálogo</a>
+        <a class="button button-small header-cta" href="#catalog-grid">Ver produtos</a>
         <button
           class="menu-toggle"
           id="menu-toggle"
@@ -55,153 +55,92 @@
       </div>
 
       <nav class="mobile-menu" id="mobile-menu" aria-label="Navegação móvel" hidden>
-        <a href="index.html" aria-current="page">Início</a>
-        <a href="catalogo.html">Catálogo</a>
+        <a href="index.html">Início</a>
+        <a href="catalogo.html" aria-current="page">Catálogo</a>
         <a href="index.html#categorias">Categorias</a>
         <a href="index.html#destaques">Destaques</a>
-        <a class="button button-primary" href="catalogo.html">Explorar catálogo</a>
+        <a class="button button-primary" href="#catalog-grid">Ver produtos</a>
       </nav>
     </header>
 
     <main id="main-content" tabindex="-1">
-      <section class="hero" id="inicio" aria-labelledby="hero-title">
-        <div class="hero-backdrop" aria-hidden="true">
-          <span class="hero-glow hero-glow-one"></span>
-          <span class="hero-glow hero-glow-two"></span>
-          <span class="hero-grid-pattern"></span>
-        </div>
-        <div class="hero-inner">
-          <div class="hero-content reveal">
-            <p class="eyebrow"><span aria-hidden="true">✦</span> Descobertas que fazem sentido</p>
-            <h1 id="hero-title">Escolhas melhores começam por aqui.</h1>
-            <p class="hero-slogan">Boas escolhas em um só lugar.</p>
-            <p class="hero-copy">
-              A Orvani reúne produtos físicos e digitais de lojas parceiras em uma experiência
-              clara, contemporânea e feita para você descobrir sem complicação.
-            </p>
-            <div class="hero-actions">
-              <a class="button button-primary" href="catalogo.html">Explorar catálogo <span aria-hidden="true">→</span></a>
-              <a class="button button-ghost" href="#destaques">Ver destaques</a>
-            </div>
-            <ul class="hero-trust-list" aria-label="Características da Orvani">
-              <li><span aria-hidden="true">✓</span> Catálogo atualizado</li>
-              <li><span aria-hidden="true">✓</span> Acesso direto às lojas</li>
-            </ul>
+      <section class="catalog-hero" aria-labelledby="catalog-page-title">
+        <span class="catalog-hero-glow" aria-hidden="true"></span>
+        <div class="catalog-hero-inner reveal">
+          <p class="eyebrow"><span aria-hidden="true">✦</span> Descubra do seu jeito</p>
+          <h1 id="catalog-page-title">Explore nosso catálogo</h1>
+          <p>A Orvani reúne produtos físicos e digitais de lojas parceiras para tornar sua descoberta mais simples e transparente.</p>
+          <div class="catalog-hero-meta">
+            <span><strong id="catalog-total">—</strong> produtos ativos</span>
+            <span>Atualização pelo catálogo público</span>
           </div>
+        </div>
+      </section>
 
-          <div class="hero-showcase reveal" aria-label="Prévia do catálogo">
-            <div class="hero-product-stack" id="hero-product-stack"></div>
-            <div class="hero-orbit" aria-hidden="true">
-              <span class="hero-orbit-ring"></span>
-              <span class="hero-orbit-core">O</span>
+      <section class="section catalog-page-section" id="catalog-grid" aria-labelledby="catalog-results-title">
+        <div class="catalog-page-heading reveal">
+          <div>
+            <p class="eyebrow">Todos os produtos</p>
+            <h2 id="catalog-results-title">Encontre sua próxima escolha</h2>
+          </div>
+          <p>Use os filtros em conjunto. Você será direcionado para a loja indicada em cada oferta.</p>
+        </div>
+
+        <div class="catalog-toolbar reveal" role="search" aria-label="Buscar e filtrar produtos">
+          <div class="field search-field">
+            <label for="catalog-search">Buscar no catálogo</label>
+            <div class="search-control">
+              <span aria-hidden="true">⌕</span>
+              <input id="catalog-search" name="busca" type="search" autocomplete="off" placeholder="Produto, categoria ou loja">
             </div>
           </div>
-        </div>
-      </section>
-
-      <section class="section featured-section" id="destaques" aria-labelledby="featured-title">
-        <div class="section-heading reveal">
-          <div>
-            <p class="eyebrow">Seleção da Orvani</p>
-            <h2 id="featured-title">Destaques para descobrir</h2>
+          <div class="field">
+            <label for="type-filter">Tipo</label>
+            <select id="type-filter" name="tipo">
+              <option value="">Todos os produtos</option>
+              <option value="fisico">Físico</option>
+              <option value="digital">Digital</option>
+            </select>
           </div>
-          <div class="section-heading-side">
-            <p>Uma seleção objetiva, sem urgência artificial ou promessas inventadas.</p>
-            <a class="text-link" href="catalogo.html">Ver todos os produtos <span aria-hidden="true">→</span></a>
+          <div class="field">
+            <label for="category-filter">Categoria</label>
+            <select id="category-filter" name="categoria">
+              <option value="">Todas as categorias</option>
+            </select>
           </div>
+          <button class="button button-filter-reset" id="clear-filters" type="button">Limpar filtros</button>
         </div>
 
-        <div
-          class="carousel reveal"
-          id="featured-carousel"
-          role="region"
-          aria-roledescription="carrossel"
-          aria-label="Produtos em destaque"
-        >
-          <div class="carousel-viewport" id="carousel-viewport">
-            <div class="carousel-track" id="carousel-track"></div>
-          </div>
-          <div class="carousel-controls" id="carousel-controls">
-            <button class="icon-button" id="carousel-prev" type="button" aria-label="Destaque anterior">←</button>
-            <div class="carousel-indicators" id="carousel-indicators" aria-label="Escolher destaque"></div>
-            <button class="icon-button" id="carousel-next" type="button" aria-label="Próximo destaque">→</button>
-          </div>
-          <p class="visually-hidden" id="carousel-live" aria-live="polite" aria-atomic="true"></p>
+        <div class="catalog-meta reveal">
+          <p id="result-count" aria-live="polite">Carregando catálogo…</p>
+          <p class="demo-note" id="demo-note" hidden>Dados fictícios para demonstração</p>
         </div>
-      </section>
 
-      <section class="section categories-section" id="categorias" aria-labelledby="categories-title">
-        <div class="section-heading reveal">
-          <div>
-            <p class="eyebrow">Encontre seu caminho</p>
-            <h2 id="categories-title">Explore por categoria</h2>
-          </div>
-          <p>Os atalhos acompanham automaticamente os produtos ativos do catálogo.</p>
+        <div class="catalog-state" id="catalog-state" role="status" aria-live="polite">
+          <span class="loading-spinner" aria-hidden="true"></span>
+          <p>Carregando produtos…</p>
         </div>
-        <div class="category-list reveal" id="category-list"></div>
-      </section>
 
-      <section class="section benefits-section" id="beneficios" aria-labelledby="benefits-title">
-        <div class="section-heading section-heading-centered reveal">
-          <p class="eyebrow">Simples por princípio</p>
-          <h2 id="benefits-title">Por que usar a Orvani?</h2>
-          <p>Uma vitrine pensada para reduzir ruído e deixar cada destino transparente.</p>
+        <div class="feedback-panel error-panel" id="load-error" role="alert" hidden>
+          <p class="feedback-kicker">Não foi possível atualizar</p>
+          <h3 id="load-error-title">O catálogo está temporariamente indisponível.</h3>
+          <p id="load-error-copy">Verifique sua conexão e tente novamente em instantes.</p>
+          <button class="button button-primary" id="retry-button" type="button">Tentar novamente</button>
         </div>
-        <div class="benefit-grid">
-          <article class="benefit-card reveal">
-            <span class="benefit-icon" aria-hidden="true">◇</span>
-            <h3>Físicos e digitais</h3>
-            <p>Diferentes tipos de produto reunidos em uma experiência consistente.</p>
-          </article>
-          <article class="benefit-card reveal">
-            <span class="benefit-icon" aria-hidden="true">↗</span>
-            <h3>Acesso direto</h3>
-            <p>Você segue para a loja parceira identificada no card para concluir a compra.</p>
-          </article>
-          <article class="benefit-card reveal">
-            <span class="benefit-icon" aria-hidden="true">↻</span>
-            <h3>Catálogo atualizado</h3>
-            <p>Os produtos acompanham os dados públicos mantidos pela curadoria da Orvani.</p>
-          </article>
-          <article class="benefit-card reveal">
-            <span class="benefit-icon" aria-hidden="true">◎</span>
-            <h3>Clareza em cada passo</h3>
-            <p>Sem checkout próprio, avaliações inventadas ou informações de estoque criadas.</p>
-          </article>
-        </div>
-      </section>
 
-      <section class="section process-section" id="como-funciona" aria-labelledby="process-title">
-        <div class="process-intro reveal">
-          <p class="eyebrow">Como funciona</p>
-          <h2 id="process-title">Da descoberta à loja em três passos.</h2>
-          <p>A Orvani ajuda você a encontrar. A compra e todo o atendimento acontecem na loja parceira.</p>
-          <a class="text-link" href="catalogo.html">Começar agora <span aria-hidden="true">→</span></a>
+        <div class="feedback-panel" id="empty-catalog" hidden>
+          <p class="feedback-kicker">Catálogo vazio</p>
+          <h3>Ainda não há produtos ativos.</h3>
+          <p>Novas escolhas aparecerão aqui quando forem publicadas.</p>
         </div>
-        <ol class="process-list">
-          <li class="process-card reveal">
-            <span class="process-number">01</span>
-            <div><h3>Encontre o produto</h3><p>Pesquise e filtre o catálogo de acordo com o que procura.</p></div>
-          </li>
-          <li class="process-card reveal">
-            <span class="process-number">02</span>
-            <div><h3>Confira os detalhes</h3><p>Veja categoria, tipo, parceiro e preços informados no catálogo.</p></div>
-          </li>
-          <li class="process-card reveal">
-            <span class="process-number">03</span>
-            <div><h3>Acesse a loja</h3><p>Use “Ver oferta” para abrir o site externo e concluir sua compra por lá.</p></div>
-          </li>
-        </ol>
-      </section>
 
-      <section class="section final-cta reveal" id="chamada-final" aria-labelledby="final-cta-title">
-        <div class="final-cta-copy">
-          <p class="eyebrow">Seu próximo achado</p>
-          <h2 id="final-cta-title">Um catálogo inteiro esperando por você.</h2>
-          <p>Explore produtos físicos e digitais e escolha qual loja parceira deseja visitar.</p>
+        <div class="feedback-panel" id="no-results" hidden>
+          <p class="feedback-kicker">Nenhum resultado</p>
+          <h3>Não encontramos uma combinação como essa.</h3>
+          <p>Tente outra busca ou remova os filtros aplicados acima.</p>
         </div>
-        <a class="button button-light" href="catalogo.html">Explorar catálogo completo <span aria-hidden="true">→</span></a>
-        <span class="final-cta-orbit" aria-hidden="true"></span>
+
+        <div class="product-grid" id="product-grid"></div>
       </section>
     </main>
 
@@ -239,7 +178,6 @@
             <ul class="partner-list" aria-label="Lojas parceiras configuradas"></ul>
           </div>
         </div>
-
         <div class="affiliate-disclosure">
           <span aria-hidden="true">i</span>
           <p>A Orvani participa de programas de afiliados. Podemos receber uma comissão por compras realizadas através dos nossos links, sem custo adicional para você.</p>
