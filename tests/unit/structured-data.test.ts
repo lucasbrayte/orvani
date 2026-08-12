@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildProductJsonLd } from "@/lib/structured-data";
+import { buildProductJsonLd, serializeJsonLd } from "@/lib/structured-data";
 
 import { makeProduct } from "../fixtures/products";
 
@@ -29,5 +29,17 @@ describe("product structured data", () => {
 
     expect(available.offers.availability).toBe("https://schema.org/InStock");
     expect(unavailable.offers.availability).toBe("https://schema.org/OutOfStock");
+  });
+
+  it("prevents spreadsheet text from closing the JSON-LD script", () => {
+    const serialized = serializeJsonLd({
+      description: '</script><img src=x onerror="alert(1)">',
+    });
+
+    expect(serialized).not.toContain("<");
+    expect(serialized).not.toContain("</script>");
+    expect(JSON.parse(serialized)).toEqual({
+      description: '</script><img src=x onerror="alert(1)">',
+    });
   });
 });
