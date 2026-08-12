@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Inter, Manrope } from "next/font/google";
 
 import { siteIdentity } from "@/lib/site";
+import { SiteFooter } from "@/components/layout/site-footer";
+import { SiteHeader } from "@/components/layout/site-header";
 
 import "./globals.css";
 
@@ -33,17 +35,11 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <a className="skip-link" href="#conteudo">
           Pular para o conteúdo
         </a>
-        <header className="site-shell" aria-label="Cabeçalho principal">
-          <a className="wordmark" href="/" aria-label="Orvani, página inicial">
-            Orvani
-          </a>
-        </header>
+        <SiteHeader />
         <main id="conteudo" tabIndex={-1}>
           {children}
         </main>
-        <footer className="site-shell">
-          <p>Orvani — boas escolhas em um só lugar.</p>
-        </footer>
+        <SiteFooter />
       </body>
     </html>
   );
