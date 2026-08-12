@@ -438,6 +438,7 @@ const CONFIG = {
     let refreshTimer = null;
     let lastFetchAt = 0;
     let loadPromise = null;
+    let catalogFiltersInitialized = false;
 
     function element(tagName, className, text) {
       const node = document.createElement(tagName);
@@ -781,7 +782,9 @@ const CONFIG = {
       const total = document.querySelector("#catalog-total");
       if (total) total.textContent = String(products.length);
       renderCategoryFilter(products);
+      syncCatalogControls();
       renderFilteredProducts();
+      updateCatalogUrl("replace");
     }
 
     function setVisibility(selector, visible) {
@@ -798,6 +801,12 @@ const CONFIG = {
 
       grid.replaceChildren(...filtered.map(createProductCard));
       count.textContent = `${filtered.length} ${filtered.length === 1 ? "produto" : "produtos"}`;
+      grid.classList.remove("is-updating");
+      count.classList.remove("is-updating");
+      globalThis.requestAnimationFrame(() => {
+        grid.classList.add("is-updating");
+        count.classList.add("is-updating");
+      });
       setVisibility("#no-results", activeProducts.length > 0 && filtered.length === 0);
       setVisibility("#empty-catalog", activeProducts.length === 0);
       setVisibility("#product-grid", filtered.length > 0);
@@ -807,11 +816,11 @@ const CONFIG = {
     function setProducts(products, { demo = false, resetFilters = true } = {}) {
       state.products = [...products];
       state.demo = demo;
-      if (resetFilters) state.filters = { query: "", category: "", type: "" };
-      const categories = categoriesFrom(state.products.filter((product) => product.active));
-      if (state.filters.category && !categories.includes(state.filters.category)) {
-        state.filters.category = "";
+      if (resetFilters && !catalogFiltersInitialized) {
+        state.filters = { query: "", category: "", type: "" };
       }
+      const categories = categoriesFrom(state.products.filter((product) => product.active));
+      state.filters.category = resolveCategoryFilter(state.filters.category, categories);
       const search = document.querySelector("#catalog-search");
       const category = document.querySelector("#category-filter");
       const type = document.querySelector("#type-filter");
@@ -940,24 +949,63 @@ const CONFIG = {
       const clear = document.querySelector("#clear-filters");
       search?.addEventListener("input", () => {
         state.filters.query = search.value;
-        renderFilteredProducts();
+        applyCatalogFilters({ historyMode: "replace" });
       });
       category?.addEventListener("change", () => {
         state.filters.category = category.value;
-        renderFilteredProducts();
+        applyCatalogFilters({ historyMode: "push" });
       });
       type?.addEventListener("change", () => {
         state.filters.type = type.value;
-        renderFilteredProducts();
+        applyCatalogFilters({ historyMode: "push" });
       });
       clear?.addEventListener("click", () => {
         state.filters = { query: "", category: "", type: "" };
-        if (search) search.value = "";
-        if (category) category.value = "";
-        if (type) type.value = "";
-        renderFilteredProducts();
+        applyCatalogFilters({ historyMode: "push" });
         search?.focus();
       });
+    }
+
+    function resolveCategoryFilter(value, categories = categoriesFrom(
+      state.products.filter((product) => product.active),
+    )) {
+      const slug = categorySlug(value);
+      if (!slug) return "";
+      return categories.find((category) => categorySlug(category) === slug) ?? "";
+    }
+
+    function syncCatalogControls() {
+      const search = document.querySelector("#catalog-search");
+      const category = document.querySelector("#category-filter");
+      const type = document.querySelector("#type-filter");
+      if (search) search.value = state.filters.query;
+      if (category) category.value = state.filters.category;
+      if (type) type.value = state.filters.type;
+    }
+
+    function updateCatalogUrl(historyMode = "replace") {
+      if (document.body.dataset.page !== "catalogo") return;
+      const serialized = serializeCatalogFilters(state.filters);
+      const nextUrl = `${globalThis.location.pathname}${serialized ? `?${serialized}` : ""}${globalThis.location.hash}`;
+      const currentUrl = `${globalThis.location.pathname}${globalThis.location.search}${globalThis.location.hash}`;
+      if (nextUrl === currentUrl) return;
+      const method = historyMode === "push" ? "pushState" : "replaceState";
+      globalThis.history[method](null, "", nextUrl);
+    }
+
+    function applyCatalogFilters({ historyMode = "replace" } = {}) {
+      syncCatalogControls();
+      renderFilteredProducts();
+      updateCatalogUrl(historyMode);
+    }
+
+    function restoreCatalogFiltersFromUrl() {
+      const filters = readCatalogFilters(globalThis.location.search);
+      state.filters = {
+        ...filters,
+        category: resolveCategoryFilter(filters.category),
+      };
+      applyCatalogFilters();
     }
 
     function bindCatalogLoading() {
@@ -1055,7 +1103,10 @@ const CONFIG = {
     function initializeHomePage() {}
 
     function initializeCatalogPage() {
+      state.filters = readCatalogFilters(globalThis.location.search);
+      catalogFiltersInitialized = true;
       bindFilters();
+      globalThis.addEventListener("popstate", restoreCatalogFiltersFromUrl);
     }
 
     function initializeApp() {
