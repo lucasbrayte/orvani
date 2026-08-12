@@ -396,6 +396,9 @@ const CONFIG = {
     const reducedMotionQuery = globalThis.matchMedia("(prefers-reduced-motion: reduce)");
     let carouselController = null;
     let revealObserver = null;
+    let refreshTimer = null;
+    let lastFetchAt = 0;
+    let loadPromise = null;
 
     function element(tagName, className, text) {
       const node = document.createElement(tagName);
@@ -727,16 +730,20 @@ const CONFIG = {
       observeReveals(grid);
     }
 
-    function setProducts(products, { demo = false } = {}) {
+    function setProducts(products, { demo = false, resetFilters = true } = {}) {
       state.products = [...products];
       state.demo = demo;
-      state.filters = { query: "", category: "", type: "" };
+      if (resetFilters) state.filters = { query: "", category: "", type: "" };
+      const categories = categoriesFrom(state.products.filter((product) => product.active));
+      if (state.filters.category && !categories.includes(state.filters.category)) {
+        state.filters.category = "";
+      }
       const search = document.querySelector("#catalog-search");
       const category = document.querySelector("#category-filter");
       const type = document.querySelector("#type-filter");
-      if (search) search.value = "";
-      if (category) category.value = "";
-      if (type) type.value = "";
+      if (search) search.value = state.filters.query;
+      if (category) category.value = state.filters.category;
+      if (type) type.value = state.filters.type;
       setVisibility("#catalog-state", false);
       setVisibility("#load-error", false);
       setVisibility("#demo-note", demo);
@@ -744,6 +751,113 @@ const CONFIG = {
       renderFeatured(activeProducts);
       renderCategories(activeProducts);
       renderFilteredProducts();
+    }
+
+    function isDemoConfiguration() {
+      return CONFIG.spreadsheetUrl === "COLE_AQUI_O_LINK_CSV_PUBLICADO_DO_GOOGLE_SHEETS";
+    }
+
+    function hasActiveCatalog() {
+      return state.products.some((product) => product.active);
+    }
+
+    function clearRefreshTimer() {
+      if (refreshTimer !== null) globalThis.clearTimeout(refreshTimer);
+      refreshTimer = null;
+    }
+
+    function scheduleRefresh(delay = CONFIG.refreshIntervalMs) {
+      clearRefreshTimer();
+      if (isDemoConfiguration() || document.hidden) return;
+      refreshTimer = globalThis.setTimeout(() => {
+        loadCatalog({ background: true });
+      }, Math.max(0, delay));
+    }
+
+    function showLoading() {
+      const hasCatalog = hasActiveCatalog();
+      setVisibility("#catalog-state", !hasCatalog);
+      setVisibility("#load-error", false);
+      if (!hasCatalog) {
+        setVisibility("#empty-catalog", false);
+        setVisibility("#no-results", false);
+        setVisibility("#product-grid", false);
+        const count = document.querySelector("#result-count");
+        if (count) count.textContent = "Carregando catálogo…";
+      }
+    }
+
+    function showLoadError() {
+      const hasCatalog = hasActiveCatalog();
+      const panel = document.querySelector("#load-error");
+      const title = document.querySelector("#load-error-title");
+      const copy = document.querySelector("#load-error-copy");
+      const retry = document.querySelector("#retry-button");
+      setVisibility("#catalog-state", false);
+      setVisibility("#load-error", true);
+      panel?.classList.toggle("is-update-warning", hasCatalog);
+      if (title) {
+        title.textContent = hasCatalog
+          ? "A última atualização não foi concluída."
+          : "O catálogo está temporariamente indisponível.";
+      }
+      if (copy) {
+        copy.textContent = hasCatalog
+          ? "Você ainda está vendo o último catálogo válido. Tente atualizar novamente."
+          : "Verifique sua conexão e tente novamente em instantes.";
+      }
+      if (retry) retry.textContent = hasCatalog ? "Atualizar novamente" : "Tentar novamente";
+      if (!hasCatalog) {
+        setVisibility("#product-grid", false);
+        setVisibility("#empty-catalog", false);
+        setVisibility("#no-results", false);
+        const count = document.querySelector("#result-count");
+        if (count) count.textContent = "Catálogo indisponível";
+      }
+    }
+
+    async function performCatalogLoad({ background = false } = {}) {
+      const spreadsheet = parseHttpsUrl(CONFIG.spreadsheetUrl);
+      if (!spreadsheet) {
+        showLoadError();
+        return;
+      }
+
+      if (!background) showLoading();
+      lastFetchAt = Date.now();
+      try {
+        const response = await globalThis.fetch(spreadsheet.href, { cache: "no-store" });
+        if (!response.ok) throw new Error("CATALOG_HTTP_ERROR");
+        const parsed = normalizeRows(parseCsv(await response.text()));
+        parsed.rejected.forEach((rejection) => {
+          console.warn("Linha do catálogo rejeitada.", {
+            row: rejection.row,
+            ...(rejection.id ? { id: rejection.id } : {}),
+            code: rejection.code,
+            fields: rejection.fields,
+          });
+        });
+        setProducts(parsed.products, {
+          demo: false,
+          resetFilters: !hasActiveCatalog(),
+        });
+      } catch {
+        showLoadError();
+      } finally {
+        scheduleRefresh();
+      }
+    }
+
+    function loadCatalog(options = {}) {
+      if (isDemoConfiguration()) {
+        setProducts(DEMO_PRODUCTS, { demo: true });
+        return Promise.resolve();
+      }
+      if (loadPromise) return loadPromise;
+      loadPromise = performCatalogLoad(options).finally(() => {
+        loadPromise = null;
+      });
+      return loadPromise;
     }
 
     function bindFilters() {
@@ -770,6 +884,22 @@ const CONFIG = {
         if (type) type.value = "";
         renderFilteredProducts();
         search?.focus();
+      });
+    }
+
+    function bindCatalogLoading() {
+      document.querySelector("#retry-button")?.addEventListener("click", () => {
+        loadCatalog({ background: hasActiveCatalog() });
+      });
+      document.addEventListener("visibilitychange", () => {
+        if (isDemoConfiguration()) return;
+        if (document.hidden) {
+          clearRefreshTimer();
+          return;
+        }
+        const elapsed = Date.now() - lastFetchAt;
+        if (elapsed >= CONFIG.refreshIntervalMs) loadCatalog({ background: hasActiveCatalog() });
+        else scheduleRefresh(CONFIG.refreshIntervalMs - elapsed);
       });
     }
 
@@ -845,12 +975,13 @@ const CONFIG = {
 
     function initializeApp() {
       bindFilters();
+      bindCatalogLoading();
       setupMobileMenu();
       setupRevealObserver();
-      setProducts(DEMO_PRODUCTS, { demo: true });
+      loadCatalog();
     }
 
-    globalThis.OrvaniApp = Object.freeze({ setProducts, renderFilteredProducts });
+    globalThis.OrvaniApp = Object.freeze({ loadCatalog, setProducts, renderFilteredProducts });
     if (document.readyState === "loading") {
       document.addEventListener("DOMContentLoaded", initializeApp, { once: true });
     } else {
