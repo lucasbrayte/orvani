@@ -1069,6 +1069,40 @@ const CONFIG = {
       });
     }
 
+    function setupInstitutionalFooter() {
+      const year = String(new Date().getFullYear());
+      document.querySelectorAll(".current-year").forEach((node) => {
+        node.textContent = year;
+      });
+
+      const partnerNames = Object.values(CONFIG.affiliatePartners).map((partner) => partner.label);
+      document.querySelectorAll(".partner-list").forEach((list) => {
+        list.replaceChildren(...partnerNames.map((name) => element("li", "", name)));
+      });
+
+      const openers = new WeakMap();
+      document.querySelectorAll("[data-dialog-target]").forEach((trigger) => {
+        trigger.addEventListener("click", () => {
+          const dialog = document.getElementById(trigger.dataset.dialogTarget);
+          if (!(dialog instanceof HTMLDialogElement)) return;
+          openers.set(dialog, trigger);
+          dialog.showModal();
+          dialog.querySelector(".dialog-close")?.focus();
+        });
+      });
+
+      document.querySelectorAll("dialog.institutional-dialog").forEach((dialog) => {
+        dialog.querySelector(".dialog-close")?.addEventListener("click", () => dialog.close());
+        dialog.addEventListener("click", (event) => {
+          if (event.target === dialog) dialog.close();
+        });
+        dialog.addEventListener("close", () => {
+          openers.get(dialog)?.focus();
+          openers.delete(dialog);
+        });
+      });
+    }
+
     function observeReveals(scope = document) {
       const nodes = scope.querySelectorAll?.(".reveal:not(.is-visible)") ?? [];
       if (reducedMotionQuery.matches || !revealObserver) {
@@ -1097,6 +1131,7 @@ const CONFIG = {
     function initializeSharedUi() {
       bindCatalogLoading();
       setupMobileMenu();
+      setupInstitutionalFooter();
       setupRevealObserver();
     }
 
