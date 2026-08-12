@@ -1,5 +1,3 @@
-import type { Metadata } from "next";
-
 import { getCatalogRepository } from "@/catalog/get-repository";
 import { ActiveFilters } from "@/components/catalog/active-filters";
 import { CatalogEmptyState } from "@/components/catalog/empty-state";
@@ -7,11 +5,13 @@ import { CatalogFilters } from "@/components/catalog/catalog-filters";
 import { Pagination } from "@/components/catalog/pagination";
 import { ProductGrid } from "@/components/product/product-grid";
 import { parseCatalogSearchParams, type RawSearchParams } from "@/domain/products/search-params";
+import { buildPageMetadata } from "@/lib/page-metadata";
 
-export const metadata: Metadata = {
+export const metadata = buildPageMetadata({
   title: "Catálogo",
   description: "Pesquise e filtre produtos físicos e digitais selecionados pela Orvani.",
-};
+  path: "/catalogo",
+});
 
 export default async function CatalogPage({ searchParams }: { searchParams: Promise<RawSearchParams> }) {
   const query = parseCatalogSearchParams(await searchParams);

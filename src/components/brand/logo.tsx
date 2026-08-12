@@ -7,6 +7,7 @@ export function Logo({ compact = false, className }: LogoProps) {
   return (
     <span className={["logo", className].filter(Boolean).join(" ")}>
       <svg viewBox="0 0 48 48" aria-hidden="true" className="logo__symbol">
+        <title>Símbolo geométrico da Orvani</title>
         <path
           d="M35.7 37.3A17 17 0 1 1 38 13.2"
           fill="none"

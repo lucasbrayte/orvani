@@ -28,6 +28,16 @@ describe("runtime environment", () => {
     expect(() => parseRuntimeEnv({ NODE_ENV: "production" })).toThrowError(/produção/i);
   });
 
+  it("allows an explicit production demo build without integration credentials", () => {
+    expect(
+      parseRuntimeEnv({
+        NODE_ENV: "production",
+        NEXT_PUBLIC_SITE_URL: "https://orvani.example",
+        CATALOG_DATA_MODE: "demo",
+      }).catalogMode,
+    ).toBe("demo");
+  });
+
   it("accepts a complete production catalog configuration", () => {
     expect(
       parseRuntimeEnv({

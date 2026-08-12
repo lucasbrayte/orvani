@@ -7,6 +7,7 @@ const optionalValue = z.preprocess(
 
 const rawEnvSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  CATALOG_DATA_MODE: z.enum(["demo", "supabase"]).optional(),
   NEXT_PUBLIC_SITE_URL: optionalValue,
   SUPABASE_URL: optionalValue,
   SUPABASE_PUBLISHABLE_KEY: optionalValue,
@@ -83,15 +84,24 @@ export function parseRuntimeEnv(input: EnvInput): RuntimeEnv {
     "Google Sheets",
   );
 
-  if (raw.NODE_ENV === "production" && (!raw.NEXT_PUBLIC_SITE_URL || !hasSupabase)) {
-    throw new Error("A configuração de produção exige URL pública e Supabase completos.");
+  if (raw.CATALOG_DATA_MODE === "supabase" && !hasSupabase) {
+    throw new Error("O modo Supabase exige a configuração completa do banco.");
+  }
+
+  if (
+    raw.NODE_ENV === "production" &&
+    (!raw.NEXT_PUBLIC_SITE_URL || (!hasSupabase && raw.CATALOG_DATA_MODE !== "demo"))
+  ) {
+    throw new Error(
+      "A configuração de produção exige URL pública e Supabase completos ou modo demo explícito.",
+    );
   }
 
   const siteUrl = raw.NEXT_PUBLIC_SITE_URL
     ? safeUrl(raw.NEXT_PUBLIC_SITE_URL, "NEXT_PUBLIC_SITE_URL", raw.NODE_ENV === "production")
     : "http://localhost:3000";
 
-  if (!hasSupabase) {
+  if (!hasSupabase || raw.CATALOG_DATA_MODE === "demo") {
     return { nodeEnv: raw.NODE_ENV, catalogMode: "demo", siteUrl };
   }
 

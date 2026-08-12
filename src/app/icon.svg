@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>Orvani</title>
+  <rect width="64" height="64" rx="16" fill="#0B1020"/>
+  <path d="M43 47A22 22 0 1 1 46 16" fill="none" stroke="#F7F8FC" stroke-linecap="round" stroke-width="8"/>
+  <path d="m39 21 11-11" fill="none" stroke="#635BFF" stroke-linecap="round" stroke-width="6"/>
+  <circle cx="39" cy="22" r="6" fill="#FF6B4A"/>
+  <circle cx="52" cy="8" r="4" fill="#635BFF"/>
+</svg>

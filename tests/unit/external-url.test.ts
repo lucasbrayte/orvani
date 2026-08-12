@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { parseAllowedHosts, validateExternalUrl } from "@/security/external-url";
+import { buildImageRemotePatterns } from "@/security/image-hosts";
 
 const hosts = ["amazon.com.br", "amzn.to", "shopee.com.br", "mercadolivre.com.br"];
 
@@ -33,5 +34,18 @@ describe("external URL allowlist", () => {
     "https://127.0.0.1/item",
   ])("blocks unsafe destination: %s", (value) => {
     expect(() => validateExternalUrl(value, hosts)).toThrow();
+  });
+});
+
+describe("Next image allowlist", () => {
+  it("maps each configured host to exact and subdomain-only HTTPS patterns", () => {
+    expect(buildImageRemotePatterns("cdn.example.com")).toEqual([
+      { protocol: "https", hostname: "cdn.example.com", port: "", pathname: "/**" },
+      { protocol: "https", hostname: "**.cdn.example.com", port: "", pathname: "/**" },
+    ]);
+  });
+
+  it("uses no remote image origin when the setting is empty", () => {
+    expect(buildImageRemotePatterns("  ")).toEqual([]);
   });
 });
