@@ -105,7 +105,8 @@ create or replace function public.apply_catalog_snapshot(
   p_products jsonb,
   p_preserved_ids text[],
   p_rows_read integer,
-  p_rejected integer
+  p_rejected integer,
+  p_error_summary jsonb
 )
 returns jsonb
 language plpgsql
@@ -221,7 +222,8 @@ begin
     inserted_count = v_inserted,
     updated_count = v_updated,
     rejected_count = p_rejected,
-    deactivated_count = v_deactivated
+    deactivated_count = v_deactivated,
+    error_summary = case when jsonb_typeof(p_error_summary) = 'array' then p_error_summary else '[]'::jsonb end
   where id = p_run_id;
 
   return jsonb_build_object(
@@ -232,8 +234,8 @@ begin
 end;
 $$;
 
-revoke execute on function public.apply_catalog_snapshot(uuid, jsonb, text[], integer, integer) from public;
-grant execute on function public.apply_catalog_snapshot(uuid, jsonb, text[], integer, integer) to service_role;
+revoke execute on function public.apply_catalog_snapshot(uuid, jsonb, text[], integer, integer, jsonb) from public;
+grant execute on function public.apply_catalog_snapshot(uuid, jsonb, text[], integer, integer, jsonb) to service_role;
 
 create or replace function public.aggregate_and_prune_affiliate_clicks(
   cutoff timestamptz default now() - interval '90 days'

@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Partner, Product } from "@/domain/products/model";
 import { createSupabaseAdminClient } from "@/integrations/supabase/client";
+import type { CatalogSyncRepository } from "@/sync/types";
 
 export type AffiliateTarget = { productId: string; partner: Partner; url: string };
 export type SnapshotCounts = { inserted: number; updated: number; deactivated: number };
@@ -30,7 +31,7 @@ function toDatabaseProduct(product: Product) {
   };
 }
 
-export class SupabaseAdminCatalogRepository {
+export class SupabaseAdminCatalogRepository implements CatalogSyncRepository {
   constructor(private readonly client: SupabaseClient = createSupabaseAdminClient()) {}
 
   async getActiveAffiliateTarget(productId: string): Promise<AffiliateTarget | null> {
@@ -77,6 +78,7 @@ export class SupabaseAdminCatalogRepository {
     preservedIds: string[];
     rowsRead: number;
     rejected: number;
+    errors: { row: number; id?: string; code: "INVALID_ROW"; fields: string[] }[];
   }): Promise<SnapshotCounts> {
     const { data, error } = await this.client.rpc("apply_catalog_snapshot", {
       p_run_id: input.runId,
@@ -84,6 +86,7 @@ export class SupabaseAdminCatalogRepository {
       p_preserved_ids: input.preservedIds,
       p_rows_read: input.rowsRead,
       p_rejected: input.rejected,
+      p_error_summary: input.errors,
     });
     if (error) throw new Error("Não foi possível aplicar o catálogo validado.");
     const counts = data as Record<string, number>;
