@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0B1020">
+    <meta name="referrer" content="no-referrer">
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https:; connect-src 'self' https://docs.google.com https://*.googleusercontent.com; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'"
+    >
+    <meta
+      name="description"
+      content="Descubra produtos físicos e digitais selecionados em lojas parceiras, com uma experiência simples e transparente."
+    >
+    <title>Orvani — Boas escolhas em um só lugar</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="script.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Pular para o conteúdo</a>
+
+    <header class="site-header" id="site-header">
+      <div class="header-inner">
+        <a class="brand" href="#inicio" aria-label="Orvani — página inicial">
+          <svg class="brand-symbol" viewBox="0 0 48 48" role="img" aria-hidden="true">
+            <path d="M24 5 42 15.5v17L24 43 6 32.5v-17L24 5Z" fill="none" stroke="currentColor" stroke-width="4"></path>
+            <path d="M16 24a8 8 0 1 0 16 0 8 8 0 0 0-16 0Z" fill="none" stroke="currentColor" stroke-width="4"></path>
+            <path d="m32 24 8-4.5" stroke="currentColor" stroke-width="4" stroke-linecap="round"></path>
+          </svg>
+          <span>Orvani</span>
+        </a>
+
+        <nav class="desktop-navigation" aria-label="Navegação principal">
+          <a href="#destaques">Destaques</a>
+          <a href="#categorias">Categorias</a>
+          <a href="#catalogo">Catálogo</a>
+        </nav>
+
+        <button
+          class="menu-toggle"
+          id="menu-toggle"
+          type="button"
+          aria-expanded="false"
+          aria-controls="mobile-menu"
+          aria-label="Abrir menu"
+        >
+          <span aria-hidden="true"></span>
+          <span aria-hidden="true"></span>
+          <span aria-hidden="true"></span>
+        </button>
+      </div>
+
+      <nav class="mobile-menu" id="mobile-menu" aria-label="Navegação móvel" hidden>
+        <a href="#destaques">Destaques</a>
+        <a href="#categorias">Categorias</a>
+        <a href="#catalogo">Catálogo</a>
+      </nav>
+    </header>
+
+    <main id="main-content" tabindex="-1">
+      <section class="hero" id="inicio" aria-labelledby="hero-title">
+        <div class="hero-content reveal">
+          <p class="eyebrow">Curadoria clara. Destinos confiáveis.</p>
+          <h1 id="hero-title">Boas escolhas em um só lugar.</h1>
+          <p class="hero-copy">
+            Explore produtos físicos e digitais selecionados para facilitar sua descoberta.
+            Ao escolher uma oferta, você segue diretamente para a loja parceira.
+          </p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="#catalogo">Explorar catálogo</a>
+            <a class="text-link" href="#como-funciona">Como funciona</a>
+          </div>
+        </div>
+        <div class="hero-art" aria-hidden="true">
+          <span class="hero-orbit hero-orbit-one"></span>
+          <span class="hero-orbit hero-orbit-two"></span>
+          <span class="hero-core">O</span>
+        </div>
+      </section>
+
+      <section class="section featured-section" id="destaques" aria-labelledby="featured-title">
+        <div class="section-heading reveal">
+          <div>
+            <p class="eyebrow">Seleção da Orvani</p>
+            <h2 id="featured-title">Destaques para descobrir</h2>
+          </div>
+          <p>Uma seleção compacta, sem urgência artificial ou promessas inventadas.</p>
+        </div>
+
+        <div
+          class="carousel reveal"
+          id="featured-carousel"
+          role="region"
+          aria-roledescription="carrossel"
+          aria-label="Produtos em destaque"
+        >
+          <div class="carousel-viewport" id="carousel-viewport">
+            <div class="carousel-track" id="carousel-track"></div>
+          </div>
+          <div class="carousel-controls" id="carousel-controls">
+            <button class="icon-button" id="carousel-prev" type="button" aria-label="Destaque anterior">←</button>
+            <div class="carousel-indicators" id="carousel-indicators" aria-label="Escolher destaque"></div>
+            <button class="icon-button" id="carousel-next" type="button" aria-label="Próximo destaque">→</button>
+          </div>
+          <p class="visually-hidden" id="carousel-live" aria-live="polite" aria-atomic="true"></p>
+        </div>
+      </section>
+
+      <section class="section categories-section" id="categorias" aria-labelledby="categories-title">
+        <div class="section-heading reveal">
+          <div>
+            <p class="eyebrow">Encontre seu caminho</p>
+            <h2 id="categories-title">Categorias</h2>
+          </div>
+          <p>Os atalhos acompanham automaticamente o catálogo publicado.</p>
+        </div>
+        <div class="category-list reveal" id="category-list"></div>
+      </section>
+
+      <section class="section catalog-section" id="catalogo" aria-labelledby="catalog-title">
+        <div class="section-heading reveal">
+          <div>
+            <p class="eyebrow">Todos os produtos</p>
+            <h2 id="catalog-title">Catálogo Orvani</h2>
+          </div>
+          <p id="como-funciona">
+            A Orvani não vende nem processa pagamentos. Cada oferta abre a loja indicada no card.
+          </p>
+        </div>
+
+        <div class="catalog-toolbar reveal" role="search" aria-label="Buscar e filtrar produtos">
+          <div class="field search-field">
+            <label for="catalog-search">Buscar no catálogo</label>
+            <div class="search-control">
+              <span aria-hidden="true">⌕</span>
+              <input
+                id="catalog-search"
+                name="busca"
+                type="search"
+                autocomplete="off"
+                placeholder="Produto, categoria ou loja"
+              >
+            </div>
+          </div>
+          <div class="field">
+            <label for="category-filter">Categoria</label>
+            <select id="category-filter" name="categoria">
+              <option value="">Todas</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="type-filter">Tipo</label>
+            <select id="type-filter" name="tipo">
+              <option value="">Todos</option>
+              <option value="fisico">Físico</option>
+              <option value="digital">Digital</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="catalog-meta reveal">
+          <p id="result-count" aria-live="polite">Carregando catálogo…</p>
+          <p class="demo-note" id="demo-note" hidden>Dados fictícios para demonstração</p>
+        </div>
+
+        <div class="catalog-state" id="catalog-state" role="status" aria-live="polite">
+          <span class="loading-spinner" aria-hidden="true"></span>
+          <p>Carregando produtos…</p>
+        </div>
+
+        <div class="feedback-panel error-panel" id="load-error" role="alert" hidden>
+          <p class="feedback-kicker">Não foi possível atualizar</p>
+          <h3>O catálogo está temporariamente indisponível.</h3>
+          <p>Verifique sua conexão e tente novamente em instantes.</p>
+          <button class="button button-primary" id="retry-button" type="button">Tentar novamente</button>
+        </div>
+
+        <div class="feedback-panel" id="empty-catalog" hidden>
+          <p class="feedback-kicker">Catálogo vazio</p>
+          <h3>Ainda não há produtos ativos.</h3>
+          <p>Novas escolhas aparecerão aqui quando forem publicadas.</p>
+        </div>
+
+        <div class="feedback-panel" id="no-results" hidden>
+          <p class="feedback-kicker">Nenhum resultado</p>
+          <h3>Não encontramos uma combinação como essa.</h3>
+          <p>Tente outra busca ou remova os filtros aplicados.</p>
+          <button class="button button-secondary" id="clear-filters" type="button">Limpar filtros</button>
+        </div>
+
+        <div class="product-grid" id="product-grid"></div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <div class="footer-brand">
+          <strong>Orvani</strong>
+          <span>Boas escolhas em um só lugar.</span>
+        </div>
+        <p>
+          A Orvani participa de programas de afiliados. Podemos receber uma comissão por compras
+          realizadas através dos nossos links, sem custo adicional para você.
+        </p>
+        <p class="footer-detail">
+          Preços e disponibilidade podem mudar na loja parceira. A Orvani não é responsável por
+          estoque, pagamento, entrega ou garantia.
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>

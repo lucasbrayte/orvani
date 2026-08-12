@@ -382,6 +382,236 @@ const CONFIG = {
   globalThis.OrvaniCore = OrvaniCore;
 
   if (typeof document !== "undefined") {
-    // A inicialização da interface é adicionada no próximo checkpoint.
+    const currencyFormatter = new Intl.NumberFormat("pt-BR", {
+      style: "currency",
+      currency: "BRL",
+    });
+
+    const fallbackImage = demoImage("Orvani", "#635BFF");
+    const state = {
+      products: [],
+      filters: { query: "", category: "", type: "" },
+      demo: false,
+    };
+
+    function element(tagName, className, text) {
+      const node = document.createElement(tagName);
+      if (className) node.className = className;
+      if (text !== undefined) node.textContent = text;
+      return node;
+    }
+
+    function productImage(product, { eager = false } = {}) {
+      const wrapper = element("div", "product-image-wrap");
+      const image = document.createElement("img");
+      image.src = product.primaryImage;
+      image.alt = product.name;
+      image.width = 960;
+      image.height = 720;
+      image.decoding = "async";
+      image.loading = eager ? "eager" : "lazy";
+      image.addEventListener("error", () => {
+        if (image.src !== fallbackImage) image.src = fallbackImage;
+      }, { once: true });
+      wrapper.append(image);
+      return wrapper;
+    }
+
+    function offerLink(product, className = "button button-primary offer-link") {
+      const link = element("a", className, `Ver oferta na ${partnerLabel(product.partner)}`);
+      link.href = product.affiliateUrl;
+      link.target = "_blank";
+      link.rel = "sponsored nofollow noopener noreferrer";
+      link.setAttribute("aria-label", `Ver oferta de ${product.name} na ${partnerLabel(product.partner)}`);
+      return link;
+    }
+
+    function priceBlock(product) {
+      const container = element("div", "price-block");
+      const current = element("strong", "current-price", currencyFormatter.format(product.currentPrice));
+      const discount = calculateDiscount(product.currentPrice, product.previousPrice);
+      if (discount !== null) {
+        const previous = element("del", "previous-price", currencyFormatter.format(product.previousPrice));
+        previous.setAttribute("aria-label", `Preço anterior: ${currencyFormatter.format(product.previousPrice)}`);
+        const badge = element("span", "discount-badge", `-${discount}%`);
+        container.append(previous, current, badge);
+      } else {
+        container.append(current);
+      }
+      return container;
+    }
+
+    function createProductCard(product, index) {
+      const card = element("article", "product-card reveal");
+      card.dataset.productId = product.id;
+      card.append(productImage(product, { eager: index < 4 }));
+
+      const body = element("div", "product-card-body");
+      const meta = element("div", "product-meta");
+      meta.append(
+        element("span", "category-label", product.category),
+        element("span", "partner-label", partnerLabel(product.partner)),
+      );
+      const title = element("h3", "product-title", product.name);
+      const description = element("p", "product-description", product.shortDescription);
+      const footer = element("div", "product-card-footer");
+      footer.append(priceBlock(product), offerLink(product));
+      body.append(meta, title, description, footer);
+      card.append(body);
+      return card;
+    }
+
+    function createFeaturedSlide(product, index, total) {
+      const slide = element("article", "carousel-slide");
+      slide.dataset.slideIndex = String(index);
+      slide.setAttribute("role", "group");
+      slide.setAttribute("aria-roledescription", "slide");
+      slide.setAttribute("aria-label", `${index + 1} de ${total}`);
+      const content = element("div", "featured-content");
+      content.append(
+        element("span", "featured-partner", partnerLabel(product.partner)),
+        element("h3", "featured-title", product.name),
+        element("p", "featured-description", product.shortDescription),
+        priceBlock(product),
+        offerLink(product),
+      );
+      slide.append(productImage(product, { eager: index === 0 }), content);
+      return slide;
+    }
+
+    function renderFeatured(products) {
+      const featured = products.filter((product) => product.featured);
+      const section = document.querySelector("#destaques");
+      const track = document.querySelector("#carousel-track");
+      const controls = document.querySelector("#carousel-controls");
+      const indicators = document.querySelector("#carousel-indicators");
+      if (!section || !track || !controls || !indicators) return;
+      section.hidden = featured.length === 0;
+      track.replaceChildren(...featured.map(createFeaturedSlide));
+      indicators.replaceChildren(...featured.map((product, index) => {
+        const button = element("button", "carousel-indicator");
+        button.type = "button";
+        button.setAttribute("aria-label", `Ir para ${product.name}`);
+        button.dataset.slideTarget = String(index);
+        return button;
+      }));
+      controls.hidden = featured.length <= 1;
+    }
+
+    function categoriesFrom(products) {
+      return [...new Set(products.map((product) => product.category))]
+        .sort((left, right) => left.localeCompare(right, "pt-BR"));
+    }
+
+    function renderCategories(products) {
+      const categories = categoriesFrom(products);
+      const list = document.querySelector("#category-list");
+      const select = document.querySelector("#category-filter");
+      if (!list || !select) return;
+
+      list.replaceChildren(...categories.map((category) => {
+        const count = products.filter((product) => product.category === category).length;
+        const button = element("button", "category-chip");
+        button.type = "button";
+        button.dataset.category = category;
+        button.append(
+          element("span", "category-chip-name", category),
+          element("span", "category-chip-count", String(count)),
+        );
+        button.addEventListener("click", () => {
+          state.filters.category = category;
+          select.value = category;
+          renderFilteredProducts();
+          document.querySelector("#catalogo")?.scrollIntoView({ block: "start" });
+        });
+        return button;
+      }));
+
+      const allOption = element("option", "", "Todas");
+      allOption.value = "";
+      select.replaceChildren(allOption, ...categories.map((category) => {
+        const option = element("option", "", category);
+        option.value = category;
+        return option;
+      }));
+      select.value = state.filters.category;
+    }
+
+    function setVisibility(selector, visible) {
+      const node = document.querySelector(selector);
+      if (node) node.hidden = !visible;
+    }
+
+    function renderFilteredProducts() {
+      const activeProducts = state.products.filter((product) => product.active);
+      const filtered = filterProducts(activeProducts, state.filters);
+      const grid = document.querySelector("#product-grid");
+      const count = document.querySelector("#result-count");
+      if (!grid || !count) return;
+
+      grid.replaceChildren(...filtered.map(createProductCard));
+      count.textContent = `${filtered.length} ${filtered.length === 1 ? "produto" : "produtos"}`;
+      setVisibility("#no-results", activeProducts.length > 0 && filtered.length === 0);
+      setVisibility("#empty-catalog", activeProducts.length === 0);
+      setVisibility("#product-grid", filtered.length > 0);
+    }
+
+    function setProducts(products, { demo = false } = {}) {
+      state.products = [...products];
+      state.demo = demo;
+      state.filters = { query: "", category: "", type: "" };
+      const search = document.querySelector("#catalog-search");
+      const category = document.querySelector("#category-filter");
+      const type = document.querySelector("#type-filter");
+      if (search) search.value = "";
+      if (category) category.value = "";
+      if (type) type.value = "";
+      setVisibility("#catalog-state", false);
+      setVisibility("#load-error", false);
+      setVisibility("#demo-note", demo);
+      const activeProducts = state.products.filter((product) => product.active);
+      renderFeatured(activeProducts);
+      renderCategories(activeProducts);
+      renderFilteredProducts();
+    }
+
+    function bindFilters() {
+      const search = document.querySelector("#catalog-search");
+      const category = document.querySelector("#category-filter");
+      const type = document.querySelector("#type-filter");
+      const clear = document.querySelector("#clear-filters");
+      search?.addEventListener("input", () => {
+        state.filters.query = search.value;
+        renderFilteredProducts();
+      });
+      category?.addEventListener("change", () => {
+        state.filters.category = category.value;
+        renderFilteredProducts();
+      });
+      type?.addEventListener("change", () => {
+        state.filters.type = type.value;
+        renderFilteredProducts();
+      });
+      clear?.addEventListener("click", () => {
+        state.filters = { query: "", category: "", type: "" };
+        if (search) search.value = "";
+        if (category) category.value = "";
+        if (type) type.value = "";
+        renderFilteredProducts();
+        search?.focus();
+      });
+    }
+
+    function initializeApp() {
+      bindFilters();
+      setProducts(DEMO_PRODUCTS, { demo: true });
+    }
+
+    globalThis.OrvaniApp = Object.freeze({ setProducts, renderFilteredProducts });
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", initializeApp, { once: true });
+    } else {
+      initializeApp();
+    }
   }
 })();
