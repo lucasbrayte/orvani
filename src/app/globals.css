@@ -1,0 +1,103 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-brand: #635bff;
+  --color-ink: #0b1020;
+  --color-canvas: #f7f8fc;
+  --color-offer: #ff6b4a;
+  --font-heading: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+  --font-body: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+}
+
+:root {
+  color-scheme: light;
+  background: #f7f8fc;
+  color: #0b1020;
+  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  min-width: 320px;
+  margin: 0;
+  background: #f7f8fc;
+}
+
+a {
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 3px solid #635bff;
+  outline-offset: 3px;
+}
+
+.skip-link {
+  position: fixed;
+  left: 1rem;
+  top: 1rem;
+  z-index: 100;
+  transform: translateY(-180%);
+  border-radius: 999px;
+  background: #0b1020;
+  color: #fff;
+  padding: 0.75rem 1rem;
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+.site-shell {
+  width: min(100% - 2rem, 75rem);
+  margin-inline: auto;
+  padding-block: 1.25rem;
+}
+
+.wordmark {
+  font-family: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+  font-size: 1.35rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.placeholder-page {
+  width: min(100% - 2rem, 75rem);
+  min-height: 70vh;
+  margin-inline: auto;
+  padding-block: clamp(5rem, 12vw, 10rem);
+}
+
+.placeholder-page h1 {
+  max-width: 12ch;
+  margin-block: 0.75rem;
+  font-family: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(3rem, 9vw, 7rem);
+  line-height: 0.96;
+  letter-spacing: -0.06em;
+}
+
+.eyebrow {
+  color: #635bff;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
