@@ -175,7 +175,7 @@ h3,
   flex: 0 0 auto;
   align-items: center;
   border-radius: 0.75rem;
-  background: var(--navy);
+  background: transparent;
   line-height: 0;
 }
 
@@ -185,6 +185,10 @@ h3,
   max-width: none;
   height: auto;
   transform: translateY(-0.15rem);
+}
+
+.site-header .brand-logo {
+  filter: invert(1) hue-rotate(180deg);
 }
 
 .desktop-navigation {
