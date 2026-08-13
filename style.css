@@ -169,17 +169,22 @@ h3,
 
 .brand {
   display: inline-flex;
+  width: 8.125rem;
+  height: 3.375rem;
+  overflow: hidden;
+  flex: 0 0 auto;
   align-items: center;
-  gap: 0.65rem;
-  color: var(--navy);
-  font-size: 1.3rem;
-  font-weight: 850;
-  letter-spacing: -0.035em;
+  border-radius: 0.75rem;
+  background: var(--navy);
+  line-height: 0;
 }
 
-.brand-symbol {
-  width: 2.15rem;
-  color: var(--brand);
+.brand-logo {
+  flex: none;
+  width: 12.65625rem;
+  max-width: none;
+  height: auto;
+  transform: translateY(-0.15rem);
 }
 
 .desktop-navigation {
@@ -1905,11 +1910,12 @@ main {
 }
 
 .brand-footer {
-  color: #fff;
+  border: 0;
+  background: var(--navy);
 }
 
-.brand-footer .brand-symbol {
-  color: #8e88ff;
+.brand-footer .brand-logo {
+  width: 12.65625rem;
 }
 
 .footer-brand-column > strong {
