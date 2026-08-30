@@ -111,6 +111,15 @@ def test_settings_rejects_malformed_service_account_json_without_echoing_it(monk
     assert secret not in str(raised.value)
 
 
+def test_settings_rejects_a_different_spreadsheet_id_without_echoing_it(monkeypatch):
+    unexpected_id = "not-the-orvani-spreadsheet"
+    monkeypatch.setenv("GOOGLE_SERVICE_ACCOUNT_JSON", '{"type":"service_account"}')
+    monkeypatch.setenv("ORVANI_SPREADSHEET_ID", unexpected_id)
+    with pytest.raises(ConfigurationError) as raised:
+        Settings.from_env()
+    assert unexpected_id not in str(raised.value)
+
+
 def test_sync_report_returns_the_final_status_for_reported_row():
     item = SyncItemResult(
         row_number=4,
@@ -144,6 +153,17 @@ def test_new_import_row_gets_one_planned_automation_id_write():
     assert record.update_mode is UpdateMode.AUTOMATICO
     assert record.status is ImportStatus.NOVO
     assert record.consecutive_attempts == 0
+
+
+def test_none_automation_id_gets_one_planned_uuid4_write():
+    from automation.models import ImportRecord
+
+    record, update = ImportRecord.from_sheet_row(7, (None,))
+    assert record.automation_id
+    assert update is not None
+    assert update.values == ((record.automation_id,),)
+    assert record.automation_id != "None"
+    assert record.automation_id.split("-")[2][0] == "4"
 
 
 def test_existing_automation_id_is_preserved_without_a_planned_write():

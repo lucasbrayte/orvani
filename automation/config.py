@@ -76,9 +76,12 @@ class Settings:
             raise ConfigurationError("GOOGLE_SERVICE_ACCOUNT_JSON inválido.") from error
         if not isinstance(service_account_info, dict):
             raise ConfigurationError("GOOGLE_SERVICE_ACCOUNT_JSON deve ser um objeto JSON.")
+        requested_spreadsheet_id = os.environ.get("ORVANI_SPREADSHEET_ID")
+        if requested_spreadsheet_id is not None and requested_spreadsheet_id != SPREADSHEET_ID:
+            raise ConfigurationError("ORVANI_SPREADSHEET_ID não é permitido.")
         return cls(
             service_account_info=service_account_info,
-            spreadsheet_id=os.environ.get("ORVANI_SPREADSHEET_ID", SPREADSHEET_ID),
+            spreadsheet_id=SPREADSHEET_ID,
             import_worksheet=os.environ.get("ORVANI_IMPORT_WORKSHEET", IMPORT_WORKSHEET),
             products_worksheet=os.environ.get("ORVANI_PRODUCTS_WORKSHEET", PRODUCTS_WORKSHEET),
         )

@@ -153,7 +153,7 @@ class ImportRecord:
         cells = tuple(values) + ("",) * max(0, 32 - len(values))
         if len(cells) > 32:
             raise SheetSchemaError("A linha de Importações excede 32 colunas.")
-        automation_id = str(cells[0]).strip()
+        automation_id = "" if cells[0] is None else str(cells[0]).strip()
         planned_write = None
         if not automation_id:
             automation_id = str(uuid4())
