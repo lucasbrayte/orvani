@@ -35,6 +35,10 @@ class ScriptedHttpClient:
         return response
 
 
+class BytesSubclass(bytes):
+    pass
+
+
 @pytest.fixture
 def api_fixture():
     return json.loads((FIXTURES / "mercado-livre-item.json").read_text())
@@ -386,6 +390,64 @@ def test_rejects_invalid_or_unexpected_api_json_without_html_fallback(html_fixtu
     # Decode/parser failures must be a typed API failure, never a fallback with stale HTML.
     from automation.connectors.mercado_livre import MercadoLivreConnector
 
+    client = ScriptedHttpClient((
+        _html("https://www.mercadolivre.com.br/MLB-1234567890-fone", html_fixture),
+        HttpResponse(
+            url="https://api.mercadolibre.com/items/MLB1234567890",
+            status_code=200,
+            media_type="application/json",
+            body=body,
+        ),
+    ))
+
+    with pytest.raises(InvalidProductDataError):
+        MercadoLivreConnector(client, PARTNERS["mercado_livre"]).fetch(
+            "https://www.mercadolivre.com.br/MLB-1234567890-fone"
+        )
+
+    assert len(client.calls) == 2
+
+
+@pytest.mark.parametrize("body_type", ("str", "bytearray", "memoryview", "bytes_subclass"))
+def test_rejects_non_exact_bytes_even_when_the_api_json_is_valid(
+    html_fixture, api_fixture, body_type
+):
+    # Accepting another buffer type loosens the HttpResponse bytes boundary before parsing.
+    from automation.connectors.mercado_livre import MercadoLivreConnector
+
+    encoded = json.dumps(api_fixture).encode()
+    body = {
+        "str": encoded.decode(),
+        "bytearray": bytearray(encoded),
+        "memoryview": memoryview(encoded),
+        "bytes_subclass": BytesSubclass(encoded),
+    }[body_type]
+    client = ScriptedHttpClient((
+        _html("https://www.mercadolivre.com.br/MLB-1234567890-fone", html_fixture),
+        HttpResponse(
+            url="https://api.mercadolibre.com/items/MLB1234567890",
+            status_code=200,
+            media_type="application/json",
+            body=body,
+        ),
+    ))
+
+    with pytest.raises(InvalidProductDataError):
+        MercadoLivreConnector(client, PARTNERS["mercado_livre"]).fetch(
+            "https://www.mercadolivre.com.br/MLB-1234567890-fone"
+        )
+
+    assert len(client.calls) == 2
+
+
+@pytest.mark.parametrize("constant", ("NaN", "Infinity", "-Infinity"))
+def test_rejects_nonstandard_json_constants_anywhere_in_the_api_payload(
+    html_fixture, api_fixture, constant
+):
+    # Permitting a constant in an ignored field would make JSON validation depend on mapping details.
+    from automation.connectors.mercado_livre import MercadoLivreConnector
+
+    body = (json.dumps(api_fixture)[:-1] + f', "ignored": {constant}}}').encode()
     client = ScriptedHttpClient((
         _html("https://www.mercadolivre.com.br/MLB-1234567890-fone", html_fixture),
         HttpResponse(

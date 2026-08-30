@@ -141,9 +141,12 @@ class MercadoLivreConnector:
             )
         except (BlockedByStoreError, TemporaryFetchError, UnexpectedContentTypeError):
             return self._snapshot_from_html(html, response.url, affiliate_url, item_id)
+        body = api_response.body
+        if type(body) is not bytes:
+            raise InvalidProductDataError("A API pública retornou dados inválidos.")
         try:
-            item = json.loads(api_response.body)
-        except (TypeError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            item = json.loads(body, parse_constant=_reject_json_constant)
+        except (TypeError, UnicodeDecodeError, ValueError, json.JSONDecodeError) as error:
             raise InvalidProductDataError("A API pública retornou dados inválidos.") from error
         if not isinstance(item, Mapping):
             raise InvalidProductDataError("A API pública retornou dados inválidos.")
@@ -467,6 +470,10 @@ def _exact_item_id(value: object) -> str | None:
         return None
     candidate = value.strip().upper()
     return candidate if _EXACT_ITEM_ID.fullmatch(candidate) else None
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"Constante JSON não permitida: {value}")
 
 
 def _picture_urls(value: object) -> tuple[object, ...]:
