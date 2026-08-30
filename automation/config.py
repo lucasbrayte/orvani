@@ -37,6 +37,7 @@ BODY_LIMIT_BYTES = 2_000_000
 RETRIES = 2
 DESCRIPTION_LIMIT = 4_000
 IMAGE_LIMIT = 4
+MERCADO_LIVRE_API_ALLOWED_HOSTS = ("api.mercadolibre.com",)
 
 
 def normalize_unicode_text(value: object | None) -> str:

@@ -1,0 +1,16 @@
+{
+  "id": "MLB1234567890",
+  "catalog_product_id": "MLB1234",
+  "title": "Fone bluetooth público",
+  "price": 149.90,
+  "original_price": 199.90,
+  "currency_id": "BRL",
+  "pictures": [
+    {"secure_url": "https://http2.mlstatic.com/D_NQ_NP_1.jpg"},
+    {"secure_url": "https://http2.mlstatic.com/D_NQ_NP_2.jpg"},
+    {"secure_url": "https://http2.mlstatic.com/D_NQ_NP_3.jpg"},
+    {"secure_url": "https://http2.mlstatic.com/D_NQ_NP_4.jpg"}
+  ],
+  "category_id": "MLB1055",
+  "status": "active"
+}
