@@ -386,6 +386,12 @@ def test_publication_compares_expiry_semantically_and_rejects_malformed_existing
 
     assert plan_publication(snapshot, record, (equal,)) == ()
     assert plan_publication(snapshot, record, (replace(equal, offer_expires_at="2026-09-01"),)) == ()
+    assert plan_publication(
+        snapshot, record, (replace(equal, offer_expires_at="2026-08-31T21:00:00-03:00"),)
+    ) == ()
+    assert plan_publication(
+        snapshot, record, (replace(equal, offer_expires_at="2026-09-01T05:30:00+05:30"),)
+    ) == ()
     changed, = plan_publication(
         snapshot, record, (replace(equal, offer_expires_at="2026-09-02"),)
     )
@@ -396,6 +402,10 @@ def test_publication_compares_expiry_semantically_and_rejects_malformed_existing
         plan_publication(
             snapshot, record, (replace(equal, offer_expires_at="2026-09-01 00:00:00Z"),)
         )
+    with pytest.raises(InvalidProductDataError):
+        plan_publication(snapshot, record, (replace(equal, offer_expires_at="2026-09-01T00:00:00"),))
+    with pytest.raises(InvalidProductDataError):
+        plan_publication(snapshot, record, (replace(equal, offer_expires_at="2026-09-01T00:00:00+99:00"),))
 
 
 @pytest.mark.parametrize("invalid_rows", [None, 3, "not rows", b"not rows", (_row(7), object())])

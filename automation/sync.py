@@ -7,12 +7,11 @@ valores de domínio e planos de escrita que podem ser revisados pelo chamador.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal, ROUND_HALF_UP
 from hashlib import sha256
 import json
 from math import isfinite
-import re
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -32,10 +31,6 @@ from .security import normalize_url_for_signature, validate_https_url
 
 _YES = "sim"
 _PRODUCT_LAST_COLUMN = "T"
-_DATE_ONLY = re.compile(r"\d{4}-\d{2}-\d{2}\Z")
-_UTC_DATETIME = re.compile(
-    r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|\+00:00)\Z"
-)
 
 
 def calculate_discount(current: Decimal, previous: Decimal) -> int:
@@ -413,12 +408,18 @@ def _canonical_offer_expiry(value: Any) -> str | None:
     if not isinstance(value, str):
         raise InvalidProductDataError("A validade da oferta existente é inválida.")
     try:
-        if _DATE_ONLY.fullmatch(value):
-            point = datetime.fromisoformat(value).replace(tzinfo=UTC)
-        elif _UTC_DATETIME.fullmatch(value):
-            point = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if len(value) == 10:
+            day = date.fromisoformat(value)
+            if day.isoformat() != value:
+                raise ValueError
+            point = datetime(day.year, day.month, day.day, tzinfo=UTC)
         else:
-            raise ValueError
+            if len(value) < 20 or value[10] != "T":
+                raise ValueError
+            parsed = value[:-1] + "+00:00" if value.endswith("Z") else value
+            point = datetime.fromisoformat(parsed)
+            if point.tzinfo is None or point.utcoffset() is None:
+                raise ValueError
     except (TypeError, ValueError):
         raise InvalidProductDataError("A validade da oferta existente é inválida.") from None
     return point.astimezone(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
