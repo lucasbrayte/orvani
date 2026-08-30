@@ -7,12 +7,12 @@ valores de domínio e planos de escrita que podem ser revisados pelo chamador.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import fields, is_dataclass
 from datetime import UTC, datetime
 from decimal import Decimal, ROUND_HALF_UP
 from hashlib import sha256
 import json
 from math import isfinite
+import re
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -32,6 +32,10 @@ from .security import normalize_url_for_signature, validate_https_url
 
 _YES = "sim"
 _PRODUCT_LAST_COLUMN = "T"
+_DATE_ONLY = re.compile(r"\d{4}-\d{2}-\d{2}\Z")
+_UTC_DATETIME = re.compile(
+    r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|\+00:00)\Z"
+)
 
 
 def calculate_discount(current: Decimal, previous: Decimal) -> int:
@@ -47,9 +51,12 @@ def calculate_discount(current: Decimal, previous: Decimal) -> int:
 def data_signature(value: Any) -> str:
     """SHA-256 of a typed canonical JSON value.
 
-    Naive datetimes are explicitly interpreted as UTC; aware datetimes are
-    converted to UTC. Decimal values use fixed-point text so no exponent or
-    binary float can enter the digest.
+    The public input contract is mappings with string keys, ``list``/``tuple``,
+    and scalar ``None``, ``bool``, ``str``, ``int``, ``Decimal``, or
+    ``datetime`` values. Naive datetimes are explicitly interpreted as UTC;
+    aware datetimes are converted to UTC. Decimal values use fixed-point text.
+    Sets, bytes, dataclasses, arbitrary objects, floats, and cyclic containers
+    are rejected rather than receiving an unstable representation.
     """
     canonical = _canonical_value(value, active=set())
     encoded = json.dumps(canonical, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
@@ -132,8 +139,7 @@ def find_product_match(
     """Find a unique product using the approved independent tier precedence."""
     if not isinstance(import_record, ImportRecord):
         raise InvalidProductDataError("O registro de Importações é inválido.")
-    rows = tuple(product_rows)
-    _validate_product_row_identities(rows)
+    rows = _validated_product_rows(product_rows)
 
     for target in (import_record.last_published_url, import_record.affiliate_url):
         normalized_target = _normalized_link_or_none(target)
@@ -174,17 +180,16 @@ def plan_publication(
     _validate_worksheet(worksheet)
     if not isinstance(snapshot, ProductSnapshot) or not isinstance(import_record, ImportRecord):
         raise InvalidProductDataError("Os dados de publicação são inválidos.")
+    rows = _validated_product_rows(product_rows)
     if not _is_yes(import_record.publish):
         return ()
-    rows = tuple(product_rows)
     existing = find_product_match(import_record, rows)
     values = map_snapshot_to_product_values(snapshot, import_record, existing)
     if existing is not None:
-        if values == _product_row_values(existing):
+        if _publication_values_equal(values, _product_row_values(existing)):
             return ()
         row_number = existing.row_number
     else:
-        _validate_product_row_identities(rows)
         row_number = max((row.row_number for row in rows), default=1) + 1
     range_name = _products_range(worksheet, row_number)
     return (SheetUpdate(range_name, (values,)),)
@@ -214,8 +219,6 @@ def _canonical_value(value: Any, *, active: set[int]) -> list[Any]:
         if not isfinite(value):
             raise InvalidProductDataError("A assinatura contém número inválido.")
         raise InvalidProductDataError("A assinatura não aceita float.")
-    if is_dataclass(value) and not isinstance(value, type):
-        return _canonical_mapping({field.name: getattr(value, field.name) for field in fields(value)}, active)
     if isinstance(value, Mapping):
         return _canonical_mapping(value, active)
     if isinstance(value, (list, tuple)):
@@ -255,26 +258,43 @@ def _valid_price(value: Any) -> None:
 def _mapped_images(images: Any, existing: ProductRow | None) -> tuple[str, str, str, str]:
     if not isinstance(images, tuple) or len(images) > 4:
         raise InvalidProductDataError("As imagens do produto são inválidas.")
-    replacement = [_safe_image_or_blank(image) for image in images]
-    preserved = list(_existing_images(existing))
-    mapped = [
-        replacement[index] if index < len(replacement) and replacement[index] else preserved[index]
-        for index in range(4)
-    ]
+    replacement = _unique_normalized_images(images)
+    preserved = tuple(_normalized_https_image_or_none(image) or "" for image in _existing_images(existing))
+    if replacement:
+        mapped = replacement + list(preserved[len(replacement):])
+        seen: set[str] = set()
+        mapped = [image if not image or image not in seen else "" for image in mapped]
+        for image in mapped:
+            if image:
+                seen.add(image)
+    else:
+        mapped = list(preserved)
+    if not mapped[0]:
+        raise InvalidProductDataError("Produtos publicados exigem uma imagem HTTPS válida.")
+    mapped = (mapped + [""] * 4)[:4]
     return mapped[0], mapped[1], mapped[2], mapped[3]
 
 
-def _safe_image_or_blank(value: Any) -> str:
+def _unique_normalized_images(values: Sequence[Any]) -> list[str]:
+    result: list[str] = []
+    for value in values:
+        normalized = _normalized_https_image_or_none(value)
+        if normalized and normalized not in result:
+            result.append(normalized)
+    return result
+
+
+def _normalized_https_image_or_none(value: Any) -> str | None:
     if not isinstance(value, str) or not value:
-        return ""
+        return None
     try:
         parsed = urlsplit(value)
         if parsed.hostname is None:
             raise ValueError
         validate_https_url(value, (parsed.hostname,))
     except Exception:
-        return ""
-    return value
+        return None
+    return normalize_url_for_signature(value)
 
 
 def _existing_images(existing: ProductRow | None) -> tuple[str, str, str, str]:
@@ -347,6 +367,16 @@ def _validate_product_row_identities(rows: Sequence[ProductRow]) -> None:
         identities.add(row.row_number)
 
 
+def _validated_product_rows(product_rows: Any) -> tuple[ProductRow, ...]:
+    if not isinstance(product_rows, Sequence) or isinstance(product_rows, (str, bytes)):
+        raise InvalidProductDataError("As linhas de Produtos são inválidas.")
+    rows = tuple(product_rows)
+    if not all(isinstance(row, ProductRow) for row in rows):
+        raise InvalidProductDataError("As linhas de Produtos são inválidas.")
+    _validate_product_row_identities(rows)
+    return rows
+
+
 def _unique_match(matches: Sequence[ProductRow]) -> ProductRow | None:
     if len(matches) > 1:
         raise AmbiguousProductMatchError("A correspondência de Produtos é ambígua.")
@@ -360,6 +390,38 @@ def _product_row_values(row: ProductRow) -> tuple[Any, ...]:
         row.offer_expires_at, row.affiliate_url, row.button_text, row.video_url,
         row.image_1, row.image_2, row.image_3, row.image_4, row.order, row.featured,
     )
+
+
+def _publication_values_equal(desired: Sequence[Any], existing: Sequence[Any]) -> bool:
+    if len(desired) != len(PRODUCTS_HEADERS) or len(existing) != len(PRODUCTS_HEADERS):
+        raise InvalidProductDataError("Os valores de Produtos são inválidos.")
+    for index, (wanted, stored) in enumerate(zip(desired, existing, strict=True)):
+        if index == 10:
+            if _canonical_offer_expiry(wanted) != _canonical_offer_expiry(stored):
+                return False
+        elif wanted != stored:
+            return False
+    return True
+
+
+def _canonical_offer_expiry(value: Any) -> str | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        point = value.replace(tzinfo=UTC) if value.tzinfo is None or value.utcoffset() is None else value.astimezone(UTC)
+        return point.isoformat(timespec="microseconds").replace("+00:00", "Z")
+    if not isinstance(value, str):
+        raise InvalidProductDataError("A validade da oferta existente é inválida.")
+    try:
+        if _DATE_ONLY.fullmatch(value):
+            point = datetime.fromisoformat(value).replace(tzinfo=UTC)
+        elif _UTC_DATETIME.fullmatch(value):
+            point = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        else:
+            raise ValueError
+    except (TypeError, ValueError):
+        raise InvalidProductDataError("A validade da oferta existente é inválida.") from None
+    return point.astimezone(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
 def _validate_worksheet(worksheet: Any) -> None:

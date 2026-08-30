@@ -1,6 +1,6 @@
 """Contratos puros de mapeamento e adoção de Produtos."""
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -77,7 +77,7 @@ def _row(row_number=7, **changes):
         "price": Decimal("199.90"),
         "promotional_price": Decimal("149.90"),
         "coupon": "CUPOM",
-        "offer_expires_at": datetime(2026, 9, 1, tzinfo=UTC),
+        "offer_expires_at": "2026-09-01T00:00:00Z",
         "affiliate_url": "https://meli.la/old",
         "button_text": "Ver oferta na Mercado Livre",
         "video_url": "https://youtube.example/watch?v=keep",
@@ -140,6 +140,48 @@ def test_mapping_preserves_human_video_and_missing_old_images_without_deletion()
     )
 
 
+@pytest.mark.parametrize("images", [(), ("http://images.example/item.jpg",), ("not a url",)])
+def test_mapping_refuses_new_product_without_a_valid_primary_https_image(images):
+    with pytest.raises(InvalidProductDataError):
+        map_snapshot_to_product_values(_snapshot(images=images), _record(), None)
+
+
+def test_new_publication_with_no_valid_image_produces_no_sheet_update():
+    with pytest.raises(InvalidProductDataError):
+        plan_publication(_snapshot(images=()), _record(last_published_url="", affiliate_url=""), ())
+
+
+def test_mapping_deduplicates_normalized_new_images_and_preserves_valid_adopted_primary():
+    existing = _row(
+        image_1="HTTPS://IMAGES.EXAMPLE/old.jpg#fragment",
+        image_2="http://bad.example/old.jpg",
+    )
+    adopted = map_snapshot_to_product_values(_snapshot(images=()), _record(), existing)
+    replaced = map_snapshot_to_product_values(
+        _snapshot(images=(
+            "HTTPS://IMAGES.EXAMPLE/new.jpg?b=2&a=1#fragment",
+            "https://images.example/new.jpg?a=1&b=2",
+        )),
+        _record(),
+        existing,
+    )
+
+    assert adopted[14] == "https://images.example/old.jpg"
+    assert adopted[15] == ""
+    assert adopted[16:18] == ("https://images.example/old-3.jpg", "https://images.example/old-4.jpg")
+    assert replaced[14:18] == (
+        "https://images.example/new.jpg?a=1&b=2", "",
+        "https://images.example/old-3.jpg", "https://images.example/old-4.jpg",
+    )
+
+
+def test_mapping_refuses_adoption_without_new_or_existing_valid_primary_image():
+    with pytest.raises(InvalidProductDataError):
+        map_snapshot_to_product_values(
+            _snapshot(images=()), _record(), _row(image_1="http://bad.example/image.jpg")
+        )
+
+
 def test_mapping_uses_original_affiliate_link_and_normalizes_default_or_custom_button():
     default_values = map_snapshot_to_product_values(_snapshot(), _record(button_text="  \t "), None)
     custom_values = map_snapshot_to_product_values(_snapshot(), _record(button_text="  Comprar\n agora  "), None)
@@ -181,6 +223,34 @@ def test_data_signature_preserves_decimal_scale_image_order_and_treats_naive_dat
     )
     assert data_signature({"price": Decimal("10.0")}) != data_signature({"price": Decimal("10.00")})
     assert data_signature({"images": ["one", "two"]}) != data_signature({"images": ["two", "one"]})
+
+
+@dataclass
+class _CustomPayload:
+    value: object
+
+
+def test_data_signature_rejects_custom_dataclasses_and_cycles_before_recursing():
+    self_list = []
+    self_list.append(self_list)
+    self_mapping = {}
+    self_mapping["self"] = self_mapping
+    tuple_cycle_list = []
+    tuple_cycle = (tuple_cycle_list,)
+    tuple_cycle_list.append(tuple_cycle)
+
+    for value in (
+        _CustomPayload("custom"), self_list, self_mapping, tuple_cycle,
+        {"bytes": b"nope"}, {"set": {"nope"}},
+    ):
+        with pytest.raises(InvalidProductDataError):
+            data_signature(value)
+
+
+def test_data_signature_keeps_type_boundaries_between_equal_looking_scalars_and_sequences():
+    assert data_signature(True) != data_signature(1)
+    assert data_signature("1") != data_signature(1)
+    assert data_signature(["x"]) != data_signature(("x",))
 
 
 @pytest.mark.parametrize("value", [object(), {1: "not-a-string-key"}, float("nan"), Decimal("NaN")])
@@ -281,7 +351,7 @@ def test_publication_plans_the_next_row_for_create_and_no_writes_for_noop_or_una
         "active": matching_values[0], "product_type": matching_values[1], "partner": matching_values[2],
         "category": matching_values[3], "subcategory": matching_values[4], "name": matching_values[5],
         "description": matching_values[6], "price": matching_values[7], "promotional_price": matching_values[8],
-        "coupon": matching_values[9], "offer_expires_at": matching_values[10], "button_text": matching_values[12],
+        "coupon": matching_values[9], "offer_expires_at": "2026-09-01T00:00:00Z", "button_text": matching_values[12],
         "image_1": matching_values[14], "image_2": matching_values[15], "image_3": matching_values[16],
         "image_4": matching_values[17], "order": matching_values[18], "featured": matching_values[19],
     })
@@ -294,3 +364,51 @@ def test_publication_plans_the_next_row_for_create_and_no_writes_for_noop_or_una
 def test_publication_rejects_invalid_domain_objects_before_planning_a_write():
     with pytest.raises(InvalidProductDataError):
         plan_publication(_snapshot(), object(), ())
+
+
+def test_publication_compares_expiry_semantically_and_rejects_malformed_existing_expiry():
+    snapshot = _snapshot(
+        coupon_expires_at=datetime(2026, 8, 31, 21, tzinfo=timezone(timedelta(hours=-3)))
+    )
+    record = _record(last_published_url="", affiliate_url="https://meli.la/current?b=2&a=1")
+    desired = map_snapshot_to_product_values(
+        snapshot, record, _row(affiliate_url=snapshot.affiliate_url, video_url="")
+    )
+    equal = _row(affiliate_url=snapshot.affiliate_url, video_url="", **{
+        "active": desired[0], "product_type": desired[1], "partner": desired[2],
+        "category": desired[3], "subcategory": desired[4], "name": desired[5],
+        "description": desired[6], "price": desired[7], "promotional_price": desired[8],
+        "coupon": desired[9], "offer_expires_at": "2026-09-01T00:00:00Z",
+        "button_text": desired[12], "image_1": desired[14], "image_2": desired[15],
+        "image_3": desired[16], "image_4": desired[17], "order": desired[18],
+        "featured": desired[19],
+    })
+
+    assert plan_publication(snapshot, record, (equal,)) == ()
+    assert plan_publication(snapshot, record, (replace(equal, offer_expires_at="2026-09-01"),)) == ()
+    changed, = plan_publication(
+        snapshot, record, (replace(equal, offer_expires_at="2026-09-02"),)
+    )
+    assert changed.range_name == "'Produtos'!A7:T7"
+    with pytest.raises(InvalidProductDataError):
+        plan_publication(snapshot, record, (replace(equal, offer_expires_at="tomorrow"),))
+    with pytest.raises(InvalidProductDataError):
+        plan_publication(
+            snapshot, record, (replace(equal, offer_expires_at="2026-09-01 00:00:00Z"),)
+        )
+
+
+@pytest.mark.parametrize("invalid_rows", [None, 3, "not rows", b"not rows", (_row(7), object())])
+def test_matching_and_publication_reject_invalid_product_row_collections(invalid_rows):
+    record = _record()
+    with pytest.raises(InvalidProductDataError):
+        find_product_match(record, invalid_rows)
+    with pytest.raises(InvalidProductDataError):
+        plan_publication(_snapshot(), record, invalid_rows)
+
+
+def test_matching_and_publication_reject_generator_product_rows_outside_sequence_contract():
+    with pytest.raises(InvalidProductDataError):
+        find_product_match(_record(), (_row() for _ in range(1)))
+    with pytest.raises(InvalidProductDataError):
+        plan_publication(_snapshot(), _record(), (_row() for _ in range(1)))
