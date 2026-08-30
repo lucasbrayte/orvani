@@ -3,14 +3,22 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
+from dataclasses import replace
 from datetime import UTC, datetime
+from decimal import Decimal
 from importlib import import_module
+import re
 from typing import Protocol, runtime_checkable
 
 from ..categorizer import categorize
 from ..config import PARTNERS, PartnerConfig
 from ..http_client import SafeHttpClient
-from ..metadata import ExtractedProductData, extract_product_metadata
+from ..metadata import (
+    ExtractedProductData,
+    clean_text,
+    extract_product_metadata,
+    unique_https_images,
+)
 from ..models import (
     ConfigurationError,
     InvalidProductDataError,
@@ -23,6 +31,7 @@ from ..security import validate_https_url
 _HTML_CONTENT_TYPES = ("text/html", "application/xhtml+xml")
 _MetadataExtractor = Callable[[str, str], ExtractedProductData]
 _Clock = Callable[[], datetime]
+_CURRENCY = re.compile(r"[A-Z]{3}\Z")
 
 
 @runtime_checkable
@@ -76,6 +85,36 @@ def snapshot_from_metadata(
         images=metadata.images,
         available=metadata.available,
         fetched_at=fetched_at,
+    )
+
+
+def validate_required_metadata(metadata: object) -> ExtractedProductData:
+    """Normalize required public product fields before any snapshot is constructed."""
+    if not isinstance(metadata, ExtractedProductData):
+        raise InvalidProductDataError("O conector retornou metadados inválidos.")
+    name = clean_text(metadata.name) if isinstance(metadata.name, str) else ""
+    currency = clean_text(metadata.currency).upper() if isinstance(metadata.currency, str) else ""
+    current = metadata.current_price
+    if (
+        not name
+        or not isinstance(current, Decimal)
+        or not current.is_finite()
+        or current <= 0
+        or not _CURRENCY.fullmatch(currency)
+    ):
+        raise InvalidProductDataError("O produto não contém dados obrigatórios válidos.")
+    images = unique_https_images(metadata.images) if isinstance(metadata.images, tuple) else ()
+    if not images:
+        raise InvalidProductDataError("O produto não contém imagens públicas válidas.")
+    previous = metadata.previous_price
+    if not isinstance(previous, Decimal) or not previous.is_finite() or previous <= current:
+        previous = None
+    return replace(
+        metadata,
+        name=name,
+        currency=currency,
+        images=images,
+        previous_price=previous,
     )
 
 

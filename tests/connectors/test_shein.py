@@ -6,6 +6,7 @@ import pytest
 
 from automation.config import PARTNERS
 from automation.http_client import HttpResponse
+from automation.metadata import ExtractedProductData
 from automation.models import InvalidProductDataError, ProductNotFoundError
 
 
@@ -27,6 +28,21 @@ class ScriptedHttpClient:
 
 def _html(url, body):
     return HttpResponse(url=url, status_code=200, media_type="text/html", body=body)
+
+
+def _complete_metadata(**changes):
+    value = ExtractedProductData(
+        name="Jaqueta completa",
+        description="Dados completos para o contrato offline.",
+        current_price=Decimal("79.90"),
+        previous_price=Decimal("99.90"),
+        currency="BRL",
+        images=("https://images.example.test/shein-completa.jpg",),
+        coupon=None,
+        source_category="Moda > Roupas",
+        available=True,
+    )
+    return value.__class__(**{field: changes.get(field, getattr(value, field)) for field in value.__dataclass_fields__})
 
 
 @pytest.fixture
@@ -124,6 +140,94 @@ def test_rejects_foreign_canonical_and_unrelated_jsonld_identity(html_fixture):
         SheinConnector(ScriptedHttpClient((_html(terminal_url, unsafe),)), PARTNERS["shein"]).fetch(
             terminal_url
         )
+
+
+def test_rejects_local_webpage_that_designates_a_product_with_foreign_url():
+    # A local WebPage must not authorize a Product that explicitly belongs to an evil URL.
+    from automation.connectors.shein import SheinConnector
+
+    source_url = "https://br.shein.com/brisa-leve.html"
+    html = b'''<script type="application/ld+json">{
+      "@context":"https://schema.org", "@type":"WebPage",
+      "url":"https://br.shein.com/brisa-leve.html", "mainEntity": {
+        "@type":"Product", "url":"https://evil.example/product-p-999.html", "sku":"999",
+        "name":"Produto estrangeiro", "image":"https://images.example.test/foreign.jpg",
+        "offers":{"@type":"Offer","price":"79.90","priceCurrency":"BRL"}
+      }
+    }</script>'''
+
+    with pytest.raises(InvalidProductDataError):
+        SheinConnector(ScriptedHttpClient((_html(source_url, html),)), PARTNERS["shein"]).fetch(
+            source_url
+        )
+
+
+def test_accepts_local_main_entity_reference_to_related_product():
+    # Resolving an in-document fragment must retain the Product's matching source-page relation.
+    from automation.connectors.shein import SheinConnector
+
+    source_url = "https://br.shein.com/brisa-leve.html"
+    html = b'''<script type="application/ld+json">{
+      "@graph": [
+        {"@type":["WebPage"], "url":"https://br.shein.com/brisa-leve.html", "mainEntity":{"@id":"#product"}},
+        {"@id":"#product", "@type":["Product"], "mainEntityOfPage":"https://br.shein.com/brisa-leve.html",
+         "sku":"123", "name":"Produto local", "image":"https://images.example.test/local.jpg",
+         "offers":{"@type":"Offer","price":"79.90","priceCurrency":"BRL"}}
+      ]
+    }</script>'''
+
+    value = SheinConnector(ScriptedHttpClient((_html(source_url, html),)), PARTNERS["shein"]).fetch(
+        source_url
+    )
+
+    assert value.external_id == "123"
+
+
+def test_rejects_main_entity_reference_when_the_product_is_in_another_jsonld_block():
+    # Resolving references across JSON-LD blocks could combine unrelated entities.
+    from automation.connectors.shein import SheinConnector
+
+    source_url = "https://br.shein.com/brisa-leve.html"
+    html = b'''<script type="application/ld+json">{
+      "@type":"WebPage", "url":"https://br.shein.com/brisa-leve.html", "mainEntity":{"@id":"#product"}
+    }</script><script type="application/ld+json">{
+      "@id":"#product", "@type":"Product", "mainEntityOfPage":"https://br.shein.com/brisa-leve.html",
+      "sku":"123", "name":"Produto separado", "image":"https://images.example.test/separate.jpg",
+      "offers":{"@type":"Offer","price":"79.90","priceCurrency":"BRL"}
+    }</script>'''
+
+    with pytest.raises(InvalidProductDataError):
+        SheinConnector(ScriptedHttpClient((_html(source_url, html),)), PARTNERS["shein"]).fetch(
+            source_url
+        )
+
+
+@pytest.mark.parametrize(
+    "changes",
+    (
+        {"name": ""},
+        {"currency": ""},
+        {"current_price": Decimal("0")},
+        {"current_price": Decimal("-1")},
+        {"current_price": Decimal("NaN")},
+        {"current_price": Decimal("Infinity")},
+        {"images": ()},
+        {"images": ("http://images.example.test/insecure.jpg",)},
+    ),
+)
+def test_rejects_incomplete_or_invalid_metadata_before_snapshot(changes):
+    # Missing required public fields must not rely on ProductSnapshot side effects for rejection.
+    from automation.connectors.shein import SheinConnector
+
+    url = "https://br.shein.com/product-p-123.html"
+    connector = SheinConnector(
+        ScriptedHttpClient((_html(url, b"<html>fixture</html>"),)),
+        PARTNERS["shein"],
+        metadata_extractor=lambda _html, _source: _complete_metadata(**changes),
+    )
+
+    with pytest.raises(InvalidProductDataError):
+        connector.fetch(url)
 
 
 def test_propagates_typed_fetch_errors(shein_connector):

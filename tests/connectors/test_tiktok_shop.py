@@ -6,6 +6,7 @@ import pytest
 
 from automation.config import PARTNERS, PartnerConfig
 from automation.http_client import HttpResponse
+from automation.metadata import ExtractedProductData
 from automation.models import InvalidProductDataError, ProductNotFoundError, UnsupportedUrlError
 
 
@@ -28,6 +29,21 @@ class ScriptedHttpClient:
 
 def _html(url, body):
     return HttpResponse(url=url, status_code=200, media_type="text/html", body=body)
+
+
+def _complete_metadata(**changes):
+    value = ExtractedProductData(
+        name="Fone completo",
+        description="Dados completos para o contrato offline.",
+        current_price=Decimal("49.90"),
+        previous_price=Decimal("69.90"),
+        currency="BRL",
+        images=("https://images.example.test/tiktok-completo.jpg",),
+        coupon=None,
+        source_category="Eletrônicos > Áudio",
+        available=True,
+    )
+    return value.__class__(**{field: changes.get(field, getattr(value, field)) for field in value.__dataclass_fields__})
 
 
 @pytest.fixture
@@ -87,6 +103,34 @@ def test_fixture_host_rejects_foreign_terminal_response(html_fixture):
         TikTokShopConnector(client, FIXTURE_PARTNER).fetch("https://shop.tiktok.test/product/123")
 
 
+@pytest.mark.parametrize(
+    "changes",
+    (
+        {"name": ""},
+        {"currency": ""},
+        {"current_price": Decimal("0")},
+        {"current_price": Decimal("-1")},
+        {"current_price": Decimal("NaN")},
+        {"current_price": Decimal("Infinity")},
+        {"images": ()},
+        {"images": ("http://images.example.test/insecure.jpg",)},
+    ),
+)
+def test_html_metadata_rejects_required_fields_before_snapshot(changes):
+    # A malformed HTML extractor result cannot become a partial fixture snapshot.
+    from automation.connectors.tiktok_shop import TikTokShopConnector
+
+    url = "https://shop.tiktok.test/product/123"
+    connector = TikTokShopConnector(
+        ScriptedHttpClient((_html(url, b"<html>fixture</html>"),)),
+        FIXTURE_PARTNER,
+        metadata_extractor=lambda _html, _source: _complete_metadata(**changes),
+    )
+
+    with pytest.raises(InvalidProductDataError):
+        connector.fetch(url)
+
+
 def test_optional_api_fake_can_supply_normalized_public_fields_after_safe_identity(html_fixture):
     # Passing API fields through before validating the page identity could mix an unrelated product.
     from automation.connectors.tiktok_shop import TikTokShopApiProduct, TikTokShopConnector
@@ -121,6 +165,126 @@ def test_optional_api_fake_can_supply_normalized_public_fields_after_safe_identi
     assert value.category == "Eletrônicos"
     assert value.subcategory == "Áudio"
     assert value.affiliate_url == url
+
+
+def test_optional_api_uses_validated_terminal_id_without_requiring_product_html():
+    # A future adapter must work when the resolved page has only an identity path, not metadata HTML.
+    from automation.connectors.tiktok_shop import TikTokShopApiProduct, TikTokShopConnector
+
+    class FakeApi:
+        def __init__(self):
+            self.calls = []
+
+        def fetch_product(self, external_id):
+            self.calls.append(external_id)
+            return TikTokShopApiProduct(
+                name="Produto API completo", description="API fake", current_price=Decimal("39.90"),
+                previous_price=Decimal("59.90"), currency="BRL",
+                images=("https://images.example.test/tiktok-api-completo.jpg",),
+                source_category="", available=True,
+            )
+
+    url = "https://shop.tiktok.test/product/123"
+    client = ScriptedHttpClient((_html(url, b"<html>sem produto</html>"),))
+    api = FakeApi()
+    value = TikTokShopConnector(client, FIXTURE_PARTNER, api=api).fetch(url)
+
+    assert api.calls == ["123"]
+    assert len(client.calls) == 1
+    assert value.source_url == url
+    assert value.affiliate_url == url
+    assert value.category == "Outros"
+
+
+def test_optional_api_wraps_unexpected_adapter_errors_as_invalid_product_data():
+    # A raw adapter RuntimeError would leak an implementation detail past the connector boundary.
+    from automation.connectors.tiktok_shop import TikTokShopConnector
+
+    class BrokenApi:
+        def fetch_product(self, external_id):
+            assert external_id == "123"
+            raise RuntimeError("adapter bug")
+
+    url = "https://shop.tiktok.test/product/123"
+    with pytest.raises(InvalidProductDataError):
+        TikTokShopConnector(
+            ScriptedHttpClient((_html(url, b"<html>sem produto</html>"),)), FIXTURE_PARTNER, api=BrokenApi()
+        ).fetch(url)
+
+
+def test_optional_api_preserves_typed_domain_errors():
+    # Converting an expected adapter outcome would hide the sync layer's typed handling branch.
+    from automation.connectors.tiktok_shop import TikTokShopConnector
+
+    class MissingApi:
+        def fetch_product(self, external_id):
+            assert external_id == "123"
+            raise ProductNotFoundError("missing")
+
+    url = "https://shop.tiktok.test/product/123"
+    with pytest.raises(ProductNotFoundError, match="missing"):
+        TikTokShopConnector(
+            ScriptedHttpClient((_html(url, b"<html>sem produto</html>"),)), FIXTURE_PARTNER, api=MissingApi()
+        ).fetch(url)
+
+
+@pytest.mark.parametrize("previous", (Decimal("0"), Decimal("-1"), Decimal("NaN"), Decimal("Infinity"), Decimal("39.90")))
+def test_optional_api_discards_invalid_or_non_discount_previous_price(previous):
+    # Keeping a non-finite, nonpositive, or non-discount previous price would fabricate a promotion.
+    from automation.connectors.tiktok_shop import TikTokShopApiProduct, TikTokShopConnector
+
+    class FakeApi:
+        def fetch_product(self, external_id):
+            assert external_id == "123"
+            return TikTokShopApiProduct(
+                name="Produto API", description="API fake", current_price=Decimal("39.90"),
+                previous_price=previous, currency="BRL",
+                images=("https://images.example.test/tiktok-api-valid.jpg",),
+                source_category="", available=True,
+            )
+
+    url = "https://shop.tiktok.test/product/123"
+    value = TikTokShopConnector(
+        ScriptedHttpClient((_html(url, b"<html>sem produto</html>"),)), FIXTURE_PARTNER, api=FakeApi()
+    ).fetch(url)
+
+    assert value.previous_price is None
+
+
+@pytest.mark.parametrize(
+    "changes",
+    (
+        {"name": ""},
+        {"currency": ""},
+        {"current_price": Decimal("0")},
+        {"current_price": Decimal("-1")},
+        {"current_price": Decimal("NaN")},
+        {"current_price": Decimal("Infinity")},
+        {"images": ()},
+        {"images": ("http://images.example.test/insecure-api.jpg",)},
+    ),
+)
+def test_optional_api_rejects_empty_or_invalid_required_fields(changes):
+    # The normalized API contract must reject incomplete data before snapshot construction.
+    from automation.connectors.tiktok_shop import TikTokShopApiProduct, TikTokShopConnector
+
+    class FakeApi:
+        def fetch_product(self, external_id):
+            assert external_id == "123"
+            values = {
+                "name": "Fone API", "description": "API fake", "current_price": Decimal("39.90"),
+                "previous_price": Decimal("59.90"), "currency": "BRL",
+                "images": ("https://images.example.test/tiktok-api-valid.jpg",),
+                "source_category": "Eletrônicos > Áudio", "available": True,
+            }
+            values.update(changes)
+            return TikTokShopApiProduct(**values)
+
+    url = "https://shop.tiktok.test/product/123"
+    with pytest.raises(InvalidProductDataError):
+        TikTokShopConnector(
+            ScriptedHttpClient((_html(url, b"<html>sem produto</html>"),)), FIXTURE_PARTNER, api=FakeApi()
+        ).fetch(url)
 
 
 def test_optional_api_rejects_invalid_normalized_data(html_fixture):

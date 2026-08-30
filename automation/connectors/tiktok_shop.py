@@ -16,11 +16,15 @@ from ..metadata import (
     ExtractedProductData,
     clean_text,
     extract_product_metadata,
-    unique_https_images,
 )
-from ..models import InvalidProductDataError, ProductSnapshot, UnsupportedUrlError
+from ..models import ConnectorError, InvalidProductDataError, ProductSnapshot, UnsupportedUrlError
 from ..security import validate_https_url
-from .base import MetadataConnectorBase, _HTML_CONTENT_TYPES, snapshot_from_metadata
+from .base import (
+    MetadataConnectorBase,
+    _HTML_CONTENT_TYPES,
+    snapshot_from_metadata,
+    validate_required_metadata,
+)
 
 
 _PRODUCT_PATH = re.compile(r"(?:^|/)product/(?P<product>[1-9]\d{0,14})(?:/|$)", re.I)
@@ -100,12 +104,17 @@ class TikTokShopConnector(MetadataConnectorBase):
         external_id = extract_tiktok_shop_product_id(response.url)
         if external_id is None:
             raise InvalidProductDataError("O produto não tem um ID externo válido.")
-        html = response.body.decode("utf-8", errors="replace")
-        metadata = self._metadata_extractor(html, response.url)
-        if not isinstance(metadata, ExtractedProductData):
-            raise InvalidProductDataError("O conector retornou metadados inválidos.")
         if self._api is not None:
-            metadata = _metadata_from_api_product(self._api.fetch_product(external_id))
+            try:
+                metadata = _metadata_from_api_product(self._api.fetch_product(external_id))
+            except ConnectorError:
+                raise
+            except Exception as error:
+                raise InvalidProductDataError("A API opcional retornou dados inválidos.") from error
+        else:
+            html = response.body.decode("utf-8", errors="replace")
+            metadata = self._metadata_extractor(html, response.url)
+        metadata = validate_required_metadata(metadata)
         return snapshot_from_metadata(
             partner_key=self.partner_key,
             external_id=external_id,
@@ -121,48 +130,21 @@ class TikTokShopConnector(MetadataConnectorBase):
 def _metadata_from_api_product(value: object) -> ExtractedProductData:
     if not isinstance(value, TikTokShopApiProduct):
         raise InvalidProductDataError("A API opcional retornou dados inválidos.")
-    name = clean_text(value.name)
-    currency = clean_text(value.currency).upper()
-    if (
-        not isinstance(value.name, str)
-        or not isinstance(value.description, str)
-        or not isinstance(value.currency, str)
-        or not name
-        or not currency
-        or not isinstance(value.current_price, Decimal)
-        or not value.current_price.is_finite()
-        or value.current_price <= 0
-    ):
-        raise InvalidProductDataError("A API opcional não contém os dados obrigatórios do produto.")
-    if value.previous_price is not None and (
-        not isinstance(value.previous_price, Decimal) or not value.previous_price.is_finite()
-    ):
-        raise InvalidProductDataError("A API opcional retornou um preço anterior inválido.")
     if not isinstance(value.images, tuple) or not all(isinstance(image, str) for image in value.images):
         raise InvalidProductDataError("A API opcional retornou imagens inválidas.")
-    images = unique_https_images(value.images)
-    if not images:
-        raise InvalidProductDataError("A API opcional não contém imagens públicas válidas.")
-    source_category = clean_text(value.source_category) if isinstance(value.source_category, str) else None
-    if source_category is None:
-        raise InvalidProductDataError("A API opcional não contém uma categoria válida.")
     if value.available is not None and not isinstance(value.available, bool):
         raise InvalidProductDataError("A API opcional retornou disponibilidade inválida.")
     if value.coupon is not None and not isinstance(value.coupon, str):
         raise InvalidProductDataError("A API opcional retornou cupom inválido.")
     coupon = clean_text(value.coupon) or None
     return ExtractedProductData(
-        name=name,
-        description=clean_text(value.description),
+        name=value.name,
+        description=value.description,
         current_price=value.current_price,
-        previous_price=(
-            value.previous_price
-            if value.previous_price is not None and value.previous_price > value.current_price
-            else None
-        ),
-        currency=currency,
-        images=images,
+        previous_price=value.previous_price,
+        currency=value.currency,
+        images=value.images,
         coupon=coupon,
-        source_category=source_category,
+        source_category=(clean_text(value.source_category) if isinstance(value.source_category, str) else None),
         available=value.available,
     )

@@ -14,7 +14,12 @@ from ..http_client import SafeHttpClient
 from ..metadata import ExtractedProductData, extract_product_metadata
 from ..models import InvalidProductDataError, ProductSnapshot, UnsupportedUrlError
 from ..security import validate_https_url
-from .base import MetadataConnectorBase, _HTML_CONTENT_TYPES, snapshot_from_metadata
+from .base import (
+    MetadataConnectorBase,
+    _HTML_CONTENT_TYPES,
+    snapshot_from_metadata,
+    validate_required_metadata,
+)
 
 
 _PRODUCT_PATH = re.compile(r"(?:^|/)product-p-(?P<product>\d{1,15})\.html(?:$|/)", re.I)
@@ -106,8 +111,7 @@ class SheinConnector(MetadataConnectorBase):
         if external_id is None:
             raise InvalidProductDataError("O produto não tem um ID externo válido.")
         metadata = self._metadata_extractor(html, response.url)
-        if not isinstance(metadata, ExtractedProductData):
-            raise InvalidProductDataError("O conector retornou metadados inválidos.")
+        metadata = validate_required_metadata(metadata)
         return snapshot_from_metadata(
             partner_key=self.partner_key,
             external_id=external_id,
@@ -140,9 +144,13 @@ class SheinConnector(MetadataConnectorBase):
                 document = json.loads(block)
             except (TypeError, json.JSONDecodeError):
                 continue
-            product_id = _main_product_id(document, source_url, canonical_urls, self.allowed_hosts)
+            product_id, has_designated_main = _main_product_id(
+                document, source_url, canonical_urls, self.allowed_hosts
+            )
             if product_id is not None:
                 return product_id
+            if has_designated_main:
+                return None
         return None
 
 
@@ -159,20 +167,21 @@ def _main_product_id(
     source_url: str,
     canonical_urls: tuple[str, ...],
     allowed_hosts: tuple[str, ...],
-) -> str | None:
+) -> tuple[str | None, bool]:
     nodes = _top_level_nodes(document)
+    index = {
+        identifier: node
+        for node in nodes
+        if isinstance((identifier := node.get("@id")), str)
+    }
     page_urls = (source_url, *canonical_urls)
-    for webpage in (node for node in nodes if _has_type(node, "webpage")):
-        if not _belongs_to_page(webpage, page_urls, allowed_hosts):
+    for product, designated in _main_products(nodes, index, page_urls, allowed_hosts):
+        if not _product_belongs_to_page(product, designated, page_urls, allowed_hosts):
             continue
-        product = webpage.get("mainEntity")
-        if isinstance(product, Mapping) and _has_type(product, "product"):
-            return _structured_product_id(product, allowed_hosts)
-    for product in (node for node in nodes if _has_type(node, "product")):
-        reference = product.get("mainEntityOfPage")
-        if _reference_matches_page(reference, page_urls, allowed_hosts):
-            return _structured_product_id(product, allowed_hosts)
-    return None
+        product_id = _structured_product_id(product, allowed_hosts)
+        if product_id is not None:
+            return product_id, designated
+    return None, _has_designated_main_page(nodes, page_urls, allowed_hosts)
 
 
 def _top_level_nodes(document: object) -> tuple[Mapping[str, object], ...]:
@@ -194,13 +203,90 @@ def _has_type(value: Mapping[str, object], expected: str) -> bool:
     )
 
 
-def _belongs_to_page(
+def _main_products(
+    nodes: tuple[Mapping[str, object], ...],
+    index: Mapping[str, Mapping[str, object]],
+    page_urls: tuple[str, ...],
+    allowed_hosts: tuple[str, ...],
+):
+    found_webpage = False
+    for webpage in (node for node in nodes if _has_type(node, "webpage") and "mainEntity" in node):
+        found_webpage = True
+        if not _webpage_belongs_to_page(webpage, page_urls, allowed_hosts):
+            continue
+        values = webpage["mainEntity"]
+        for candidate in values if isinstance(values, list) else (values,):
+            product = _resolve_node(candidate, index)
+            if product is not None and _has_type(product, "product"):
+                yield product, True
+    if found_webpage:
+        return
+    for product in (node for node in nodes if _has_type(node, "product")):
+        yield product, False
+
+
+def _has_designated_main_page(
+    nodes: tuple[Mapping[str, object], ...],
+    page_urls: tuple[str, ...],
+    allowed_hosts: tuple[str, ...],
+) -> bool:
+    return any(
+        _has_type(node, "webpage")
+        and "mainEntity" in node
+        and _webpage_belongs_to_page(node, page_urls, allowed_hosts)
+        for node in nodes
+    )
+
+
+def _webpage_belongs_to_page(
     webpage: Mapping[str, object], page_urls: tuple[str, ...], allowed_hosts: tuple[str, ...]
 ) -> bool:
-    references = tuple(value for value in (webpage.get("@id"), webpage.get("url")) if isinstance(value, str))
-    return bool(references) and all(
+    references = tuple(
+        reference
+        for value in (webpage.get("@id"), webpage.get("url"))
+        if (reference := _reference_url(value)) is not None
+    )
+    return not references or all(
         _reference_matches_page(reference, page_urls, allowed_hosts) for reference in references
     )
+
+
+def _resolve_node(
+    value: object, index: Mapping[str, Mapping[str, object]]
+) -> Mapping[str, object] | None:
+    if isinstance(value, str):
+        return index.get(value)
+    if not isinstance(value, Mapping):
+        return None
+    identifier = value.get("@id")
+    return index[identifier] if isinstance(identifier, str) and identifier in index else value
+
+
+def _product_belongs_to_page(
+    product: Mapping[str, object],
+    designated: bool,
+    page_urls: tuple[str, ...],
+    allowed_hosts: tuple[str, ...],
+) -> bool:
+    references = tuple(
+        reference
+        for value in (product.get("mainEntityOfPage"), product.get("url"), product.get("@id"))
+        if (reference := _reference_url(value)) is not None
+    )
+    absolute_references = tuple(reference for reference in references if not reference.startswith("#"))
+    return designated if not absolute_references else all(
+        _reference_matches_page(reference, page_urls, allowed_hosts)
+        for reference in absolute_references
+    )
+
+
+def _reference_url(value: object) -> str | None:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, Mapping):
+        reference = value.get("@id") or value.get("url")
+        return reference if isinstance(reference, str) else None
+    return None
 
 
 def _reference_matches_page(
