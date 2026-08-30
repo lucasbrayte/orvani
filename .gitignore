@@ -1,1 +1,11 @@
 .worktrees/
+.env
+.env.*
+!.env.example
+*service-account*.json
+credentials*.json
+__pycache__/
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
