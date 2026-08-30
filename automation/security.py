@@ -18,11 +18,10 @@ _UnsafeUrlType = type[UnsafeUrlError] | type[UnsafeRedirectError]
 
 def _canonical_hostname(host: str) -> str:
     """Return a lowercase, ASCII hostname or raise ``ValueError``."""
-    hostname = host.rstrip(".")
-    if not hostname or len(hostname) > 253:
+    if not host or host.endswith(".") or len(host) > 253:
         raise ValueError("hostname ausente ou longo demais")
     try:
-        encoded = hostname.encode("idna").decode("ascii").lower()
+        encoded = host.encode("idna").decode("ascii").lower()
     except UnicodeError as error:
         raise ValueError("hostname IDNA inválido") from error
     labels = encoded.split(".")
@@ -91,6 +90,7 @@ def resolve_public_addresses(
             or address.is_private
             or address.is_loopback
             or address.is_link_local
+            or (isinstance(address, ipaddress.IPv6Address) and address.is_site_local)
             or address.is_multicast
             or address.is_reserved
             or address.is_unspecified

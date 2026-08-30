@@ -29,18 +29,32 @@ def test_rejects_unsafe_url_shapes(url):
         validate_https_url(url, ALLOWED_MERCADO_LIVRE)
 
 
-def test_accepts_an_allowed_https_url_with_a_trailing_host_dot():
-    url = "https://WWW.MERCADOLIVRE.COM.BR./item/MLB123"
+@pytest.mark.parametrize("url", [
+    "https://WWW.MERCADOLIVRE.COM.BR./item/MLB123",
+    "https://WWW.MERCADOLIVRE.COM.BR../item/MLB123",
+])
+def test_rejects_trailing_dot_hostname_in_validation_and_signature_normalization(url):
 
-    validate_https_url(url, ALLOWED_MERCADO_LIVRE)
+    with pytest.raises(UnsafeUrlError):
+        validate_https_url(url, ALLOWED_MERCADO_LIVRE)
+    with pytest.raises(UnsafeUrlError):
+        normalize_url_for_signature(url)
+
+
+def test_rejects_an_invalid_idna_hostname():
+    url = "https://" + chr(0xD800) + ".mercadolivre.com.br/item"
+
+    with pytest.raises(UnsafeUrlError):
+        validate_https_url(url, ALLOWED_MERCADO_LIVRE)
 
 
 @pytest.mark.parametrize(("host", "allowed", "expected"), [
     ("mercadolivre.com.br", ALLOWED_MERCADO_LIVRE, True),
     ("www.mercadolivre.com.br", ALLOWED_MERCADO_LIVRE, True),
-    ("MELI.LA.", ALLOWED_MERCADO_LIVRE, True),
+    ("MELI.LA.", ALLOWED_MERCADO_LIVRE, False),
     ("mercadolivre.com.br.evil.example", ALLOWED_MERCADO_LIVRE, False),
     ("evilmercadolivre.com.br", ALLOWED_MERCADO_LIVRE, False),
+    ("mercadolivre..com.br", ALLOWED_MERCADO_LIVRE, False),
     ("", ALLOWED_MERCADO_LIVRE, False),
 ])
 def test_matches_only_exact_partner_hosts_or_their_subdomains(host, allowed, expected):
@@ -85,8 +99,11 @@ def test_resolves_only_global_dns_answers():
     "169.254.1.1",
     "224.0.0.1",
     "240.0.0.1",
+    "0.0.0.0",
     "::1",
+    "::",
     "fe80::1",
+    "fec0::1",
     "ff02::1",
     "2001:db8::1",
 ])
