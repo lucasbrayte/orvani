@@ -160,7 +160,15 @@ def batch_write(
     if value_input_option != "RAW":
         raise SheetSchemaError("O modo de escrita da planilha é inválido.")
     expected = _approved_header_contract(headers)
-    data = [_transport_update(update, worksheet, len(expected)) for update in updates]
+    pending = tuple(updates)
+    if not pending:
+        return
+    grid = _worksheet_grid_for_write(gateway, worksheet, expected)
+    width_limit = min(len(expected), grid["columnCount"])
+    data = [
+        _transport_update(update, worksheet, width_limit, grid["rowCount"])
+        for update in pending
+    ]
     if data:
         gateway.batch_values_update(data, value_input_option)
 
@@ -224,6 +232,23 @@ def _grid_is_valid(grid: Any) -> bool:
     )
 
 
+def _worksheet_grid_for_write(
+    gateway: SheetsGateway, worksheet: str, expected: Sequence[str]
+) -> Mapping[str, int]:
+    sheet = _sheet_inventory(gateway.get_spreadsheet()).get(worksheet)
+    if sheet is None:
+        raise SheetSchemaError("A aba de escrita não foi encontrada.")
+    grid = sheet["properties"]["gridProperties"]
+    if grid["columnCount"] < len(expected):
+        raise SheetSchemaError("A grade da aba não comporta o contrato de escrita.")
+    last_column = _column_label(len(expected) - 1)
+    values = gateway.get_values(_a1_range(worksheet, f"A1:{last_column}")).get("values", [])
+    if not isinstance(values, list) or not values or not isinstance(values[0], list):
+        raise SheetSchemaError("A aba de escrita não possui cabeçalho legível.")
+    validate_headers(values[0], expected=expected)
+    return grid
+
+
 def _next_unused_positive_sheet_id(sheets: Sequence[Mapping[str, Any]]) -> int:
     used = {sheet["properties"]["sheetId"] for sheet in sheets}
     candidate = 1
@@ -242,7 +267,11 @@ def _formatting_requests(sheet: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     properties = sheet["properties"]
     sheet_id, rows = properties["sheetId"], properties["gridProperties"]["rowCount"]
     full = {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": rows, "startColumnIndex": 0, "endColumnIndex": len(IMPORT_HEADERS)}
-    requests: list[Mapping[str, Any]] = [{"updateSheetProperties": {"properties": {"sheetId": sheet_id, "gridProperties": {"frozenRowCount": 1}}, "fields": "gridProperties.frozenRowCount"}}, {"setBasicFilter": {"filter": {"range": full}}}]
+    requests: list[Mapping[str, Any]] = [
+        {"updateSheetProperties": {"properties": {"sheetId": sheet_id, "gridProperties": {"frozenRowCount": 1}}, "fields": "gridProperties.frozenRowCount"}},
+        _header_format_request(sheet_id),
+        {"setBasicFilter": {"filter": {"range": full}}},
+    ]
     for column, allowed in ((1, ("Sim", "Não")), (2, ("Sim", "Não")), (3, ("Sim", "Não")), (5, tuple(item.value for item in UpdateMode)), (_STATUS_COLUMN, tuple(item.value for item in ImportStatus))):
         requests.append(_validation_request(sheet_id, rows, column, allowed))
     requests.extend((_format_request(sheet_id, rows, 15, 17, "NUMBER", 'R$ #,##0.00'), _format_request(sheet_id, rows, 19, 20, "DATE", "dd/MM/yyyy"), _format_request(sheet_id, rows, 30, 32, "DATE", "dd/MM/yyyy")))
@@ -266,6 +295,22 @@ def _validation_request(sheet_id: int, rows: int, column: int, allowed: Sequence
 
 def _format_request(sheet_id: int, rows: int, start: int, end: int, kind: str, pattern: str) -> Mapping[str, Any]:
     return {"repeatCell": {"range": {"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": rows, "startColumnIndex": start, "endColumnIndex": end}, "cell": {"userEnteredFormat": {"numberFormat": {"type": kind, "pattern": pattern}}}, "fields": "userEnteredFormat.numberFormat"}}
+
+
+def _header_format_request(sheet_id: int) -> Mapping[str, Any]:
+    return {
+        "repeatCell": {
+            "range": {
+                "sheetId": sheet_id,
+                "startRowIndex": 0,
+                "endRowIndex": 1,
+                "startColumnIndex": 0,
+                "endColumnIndex": len(IMPORT_HEADERS),
+            },
+            "cell": {"userEnteredFormat": {"textFormat": {"bold": True}}},
+            "fields": "userEnteredFormat.textFormat.bold",
+        }
+    }
 
 
 def _conditional_status_request(sheet_id: int, rows: int, status: str, color: Mapping[str, float]) -> Mapping[str, Any]:
@@ -314,10 +359,14 @@ def _approved_header_contract(headers: Sequence[str]) -> tuple[str, ...]:
     return expected
 
 
-def _transport_update(update: SheetUpdate, worksheet: str, width_limit: int) -> Mapping[str, Any]:
+def _transport_update(
+    update: SheetUpdate, worksheet: str, width_limit: int, row_limit: int
+) -> Mapping[str, Any]:
     if not isinstance(update, SheetUpdate):
         raise SheetSchemaError("A atualização da planilha é inválida.")
-    range_name, width, height = _authorized_rectangle(update.range_name, worksheet, width_limit)
+    range_name, width, height = _authorized_rectangle(
+        update.range_name, worksheet, width_limit, row_limit
+    )
     if not isinstance(update.values, tuple) or len(update.values) != height:
         raise SheetSchemaError("As dimensões da atualização não correspondem ao intervalo.")
     rows: list[list[Any]] = []
@@ -328,7 +377,9 @@ def _transport_update(update: SheetUpdate, worksheet: str, width_limit: int) -> 
     return {"range": range_name, "values": rows}
 
 
-def _authorized_rectangle(range_name: Any, worksheet: str, width_limit: int) -> tuple[str, int, int]:
+def _authorized_rectangle(
+    range_name: Any, worksheet: str, width_limit: int, row_limit: int
+) -> tuple[str, int, int]:
     if not isinstance(range_name, str) or not (match := _A1.fullmatch(range_name)):
         raise SheetSchemaError("O intervalo de atualização é inválido.")
     quoted, plain, first_column, first_row, last_column, last_row = match.groups()
@@ -338,7 +389,13 @@ def _authorized_rectangle(range_name: Any, worksheet: str, width_limit: int) -> 
     _validate_title(title)
     last_column, last_row = last_column or first_column, last_row or first_row
     start_col, end_col, start_row, end_row = _column_number(first_column), _column_number(last_column), int(first_row), int(last_row)
-    if start_col > end_col or start_row > end_row or start_col < 0 or end_col >= width_limit:
+    if (
+        start_col > end_col
+        or start_row > end_row
+        or start_col < 0
+        or end_col >= width_limit
+        or end_row > row_limit
+    ):
         raise SheetSchemaError("O intervalo de atualização está fora do contrato.")
     return _a1_range(title, f"{first_column}{start_row}:{last_column}{end_row}"), end_col - start_col + 1, end_row - start_row + 1
 

@@ -55,6 +55,19 @@ def test_setup_creates_missing_sheet_once_with_one_complete_structural_batch(fak
     assert _request_for(requests, "updateSheetProperties")["properties"]["gridProperties"] == {
         "frozenRowCount": 1
     }
+    header_format = next(
+        request["repeatCell"]
+        for request in requests
+        if request.get("repeatCell", {}).get("range", {}).get("startRowIndex") == 0
+    )
+    assert header_format["range"] == {
+        "sheetId": sheet_id,
+        "startRowIndex": 0,
+        "endRowIndex": 1,
+        "startColumnIndex": 0,
+        "endColumnIndex": 32,
+    }
+    assert header_format["cell"]["userEnteredFormat"]["textFormat"]["bold"] is True
     assert _request_for(requests, "setBasicFilter")["filter"]["range"]["endColumnIndex"] == 32
     assert _validation_values(requests, 1) == ["Sim", "Não"]
     assert _validation_values(requests, 5) == ["Automático", "Bloqueado"]
@@ -62,7 +75,11 @@ def test_setup_creates_missing_sheet_once_with_one_complete_structural_batch(fak
         "NOVO", "AGUARDANDO CONVERSÃO", "PROCESSANDO", "REVISAR",
         "PRONTO PARA PUBLICAR", "PUBLICADO", "ATENÇÃO", "ERRO", "DESATIVADO",
     ]
-    assert _request_for(requests, "repeatCell")["cell"]["userEnteredFormat"]["numberFormat"]["type"] == "NUMBER"
+    assert next(
+        request["repeatCell"]["cell"]["userEnteredFormat"]["numberFormat"]["type"]
+        for request in requests
+        if "numberFormat" in request.get("repeatCell", {}).get("cell", {}).get("userEnteredFormat", {})
+    ) == "NUMBER"
     assert any("addConditionalFormatRule" in request for request in requests)
     filter_view = _request_for(requests, "addFilterView")
     assert filter_view["filter"]["title"] == "Shopee — aguardando conversão"
@@ -122,7 +139,15 @@ def test_stateful_fake_models_repeated_validation_and_format_application_idempot
 
     state = fake_sheets_with_imports._sheets[0]
     assert len(state["validations"]) == 5
-    assert len(state["formats"]) == 3
+    assert len(state["formats"]) == 4
+    header_formats = [
+        item
+        for item in state["formats"]
+        if item["range"]["startRowIndex"] == 0
+    ]
+    assert len(header_formats) == 1
+    assert header_formats[0]["cell"]["userEnteredFormat"]["textFormat"] == {"bold": True}
+    assert state["headerTextFormat"] == {"bold": True}
     assert state["basicFilter"]["range"] == {
         "sheetId": 17,
         "startRowIndex": 0,
@@ -194,7 +219,7 @@ def test_read_table_preserves_types_and_empty_interior_rows(fake_sheets_with_imp
 def test_batch_write_transports_many_ranges_once_with_typed_numbers_and_dates(fake_sheets):
     from automation.sheets import batch_write
 
-    fake_sheets._sheets = [_grid_sheet()]
+    _set_sheet_contract(fake_sheets, "Importações", IMPORT_HEADERS)
     batch_write(
         fake_sheets,
         (
@@ -235,7 +260,7 @@ def test_new_import_row_defaults_are_one_range_and_automation_id_is_assigned_onc
     from automation.models import ImportRecord
     from automation.sheets import batch_write, plan_new_import_row
 
-    fake_sheets._sheets = [_grid_sheet()]
+    _set_sheet_contract(fake_sheets, "Importações", IMPORT_HEADERS)
     update = plan_new_import_row("Importações", 7)
     record, id_update = ImportRecord.from_sheet_row(7, (update.values[0][0],))
     existing, existing_update = ImportRecord.from_sheet_row(7, (record.automation_id,))
@@ -309,7 +334,7 @@ class _FakeService:
         return _Request(lambda: {})
 
 
-@pytest.mark.parametrize("status", (429, 503))
+@pytest.mark.parametrize("status", (429, 500, 502, 503, 504))
 def test_google_gateway_retries_only_an_allowed_temporary_status_with_bounded_backoff(status):
     from automation.sheets import GoogleSheetsGateway
 
@@ -400,15 +425,22 @@ def test_google_gateway_hides_credential_factory_failures(monkeypatch):
     assert "never-print-me" not in str(raised.value)
 
 
-def _grid_sheet(sheet_id=17, title="Importações", *, columns=32):
+def _grid_sheet(sheet_id=17, title="Importações", *, rows=1000, columns=32):
     return {
         "properties": {
             "sheetId": sheet_id,
             "title": title,
             "sheetType": "GRID",
-            "gridProperties": {"rowCount": 1000, "columnCount": columns},
+            "gridProperties": {"rowCount": rows, "columnCount": columns},
         }
     }
+
+
+def _set_sheet_contract(fake_sheets, worksheet, headers, *, rows=1000, columns=None):
+    columns = len(headers) if columns is None else columns
+    fake_sheets._sheets = [_grid_sheet(17, worksheet, rows=rows, columns=columns)]
+    last_column = "T" if len(headers) == 20 else "AF"
+    fake_sheets._values[f"'{worksheet.replace("'", "''")}'!A1:{last_column}"] = [list(headers)]
 
 
 def test_google_values_read_requests_unformatted_values_and_serial_dates():
@@ -432,7 +464,7 @@ def test_google_values_read_requests_unformatted_values_and_serial_dates():
 def test_batch_write_uses_raw_and_google_serial_dates_without_formula_interpretation(fake_sheets):
     from automation.sheets import batch_write
 
-    fake_sheets._sheets = [_grid_sheet()]
+    _set_sheet_contract(fake_sheets, "Importações", IMPORT_HEADERS)
     batch_write(
         fake_sheets,
         (
@@ -491,7 +523,7 @@ def test_read_table_supports_products_exact_contract_and_safe_quoted_range(fake_
 def test_batch_write_uses_the_selected_products_width_contract(fake_sheets):
     from automation.sheets import batch_write
 
-    fake_sheets._sheets = [_grid_sheet(19, "Produtos", columns=20)]
+    _set_sheet_contract(fake_sheets, "Produtos", PRODUCTS_HEADERS)
     batch_write(
         fake_sheets,
         (SheetUpdate("'Produtos'!T2", (("última coluna",),)),),
@@ -505,6 +537,97 @@ def test_batch_write_uses_the_selected_products_width_contract(fake_sheets):
             worksheet="Produtos",
             headers=PRODUCTS_HEADERS,
         )
+
+
+def test_batch_write_binds_a_custom_products_worksheet_to_its_real_header_before_writing(fake_sheets):
+    from automation.sheets import batch_write
+
+    _set_sheet_contract(fake_sheets, "Catálogo ' 2026", PRODUCTS_HEADERS)
+    batch_write(
+        fake_sheets,
+        (SheetUpdate("'Catálogo '' 2026'!T2", (("última coluna",),)),),
+        worksheet="Catálogo ' 2026",
+        headers=PRODUCTS_HEADERS,
+    )
+
+    assert fake_sheets.spreadsheet_reads == 1
+    assert fake_sheets.value_reads == ["'Catálogo '' 2026'!A1:T"]
+    assert len(fake_sheets.value_writes) == 1
+
+
+def test_batch_write_rejects_import_contract_on_real_products_header_before_write(fake_sheets):
+    from automation.sheets import batch_write
+
+    _set_sheet_contract(fake_sheets, "Produtos", PRODUCTS_HEADERS)
+    with pytest.raises(SheetSchemaError):
+        batch_write(
+            fake_sheets,
+            (SheetUpdate("'Produtos'!U2", (("fora da aba real",),)),),
+            worksheet="Produtos",
+            headers=IMPORT_HEADERS,
+        )
+    assert fake_sheets.value_writes == []
+
+
+def test_batch_write_rejects_wrong_contract_on_a_custom_products_worksheet_before_write(fake_sheets):
+    from automation.sheets import batch_write
+
+    _set_sheet_contract(fake_sheets, "Catálogo customizado", PRODUCTS_HEADERS)
+    with pytest.raises(SheetSchemaError):
+        batch_write(
+            fake_sheets,
+            (SheetUpdate("'Catálogo customizado'!T2", (("não importa",),)),),
+            worksheet="Catálogo customizado",
+            headers=IMPORT_HEADERS,
+        )
+    assert fake_sheets.value_writes == []
+
+
+def test_batch_write_rejects_a_real_header_mismatch_before_write(fake_sheets):
+    from automation.sheets import batch_write
+
+    _set_sheet_contract(fake_sheets, "Produtos", IMPORT_HEADERS, columns=32)
+    with pytest.raises(SheetSchemaError):
+        batch_write(
+            fake_sheets,
+            (SheetUpdate("'Produtos'!T2", (("não importa",),)),),
+            worksheet="Produtos",
+            headers=PRODUCTS_HEADERS,
+        )
+    assert fake_sheets.value_writes == []
+
+
+def test_batch_write_rejects_a_row_outside_the_real_grid_before_write(fake_sheets):
+    from automation.sheets import batch_write
+
+    _set_sheet_contract(fake_sheets, "Importações", IMPORT_HEADERS, rows=1000)
+    with pytest.raises(SheetSchemaError):
+        batch_write(fake_sheets, (SheetUpdate("'Importações'!A1001", (("late",),)),))
+    assert fake_sheets.value_writes == []
+
+
+def test_batch_write_rejects_a_real_grid_narrower_than_the_contract_before_write(fake_sheets):
+    from automation.sheets import batch_write
+
+    _set_sheet_contract(fake_sheets, "Produtos", PRODUCTS_HEADERS, columns=19)
+    with pytest.raises(SheetSchemaError):
+        batch_write(
+            fake_sheets,
+            (SheetUpdate("'Produtos'!T2", (("outside",),)),),
+            worksheet="Produtos",
+            headers=PRODUCTS_HEADERS,
+        )
+    assert fake_sheets.value_writes == []
+
+
+def test_batch_write_empty_batch_is_a_noop_without_reading_metadata(fake_sheets):
+    from automation.sheets import batch_write
+
+    batch_write(fake_sheets, ())
+
+    assert fake_sheets.spreadsheet_reads == 0
+    assert fake_sheets.value_reads == []
+    assert fake_sheets.value_writes == []
 
 
 def test_batch_write_rejects_an_invalid_selected_header_contract_before_write(fake_sheets):

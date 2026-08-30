@@ -85,9 +85,19 @@ class FakeSheetsGateway:
             elif "repeatCell" in request:
                 format_value = request["repeatCell"]
                 self._assert_grid_range(format_value["range"])
-                self._replace_range_state(
-                    self._sheet_for(format_value["range"]["sheetId"]), "formats", format_value
-                )
+                target = self._sheet_for(format_value["range"]["sheetId"])
+                if format_value["fields"] == "userEnteredFormat.textFormat.bold":
+                    assert format_value["range"] == {
+                        "sheetId": format_value["range"]["sheetId"],
+                        "startRowIndex": 0,
+                        "endRowIndex": 1,
+                        "startColumnIndex": 0,
+                        "endColumnIndex": 32,
+                    }
+                    text_format = format_value["cell"]["userEnteredFormat"]["textFormat"]
+                    assert text_format == {"bold": True}
+                    target["headerTextFormat"] = deepcopy(text_format)
+                self._replace_range_state(target, "formats", format_value)
             elif "updateSheetProperties" in request:
                 properties = request["updateSheetProperties"]["properties"]
                 sheet = self._sheet_by_id(properties["sheetId"], required=False)

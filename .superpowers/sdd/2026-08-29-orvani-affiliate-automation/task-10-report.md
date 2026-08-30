@@ -65,3 +65,31 @@ nenhuma credencial, rede real ou escrita externa foi usada.
   grade que não caibam em `int32`, antes de qualquer write.
 - A fake stateful substitui validações e formatos do mesmo intervalo, como a
   API, e continua aplicando limites de grade, filtros, formatos e valores.
+
+## Rodada corretiva 2/5 — schema de escrita vinculado
+
+### RED
+
+- Os casos de worksheet customizada, contrato `Importações` contra cabeçalho
+  real de `Produtos`, cabeçalho divergente, linha 1001 e grade estreita
+  chegavam ao transporte ou não faziam preflight.
+- A regressão de cabeçalho em negrito não encontrava `repeatCell` para A1:AF1.
+
+### GREEN
+
+- `.venv/bin/python -m pytest tests/test_sheets.py -q`: `64 passed`.
+- `.venv/bin/python -m pytest -q`: `362 passed`.
+- `.venv/bin/python -m compileall -q automation tests`: exit 0.
+- `git diff --check`: exit 0.
+
+### Decisões
+
+- Escritas não vazias leem a metadata e o cabeçalho da aba GRID autorizada,
+  validam o schema selecionado e só então validam todos os retângulos contra
+  `rowCount` e a largura efetiva; uma única `values.batchUpdate` permanece.
+- A escrita vazia retorna sem ler metadata. Títulos customizados continuam
+  usando A1 quoted/escaped.
+- A matriz de retry positivo cobre 429, 500, 502, 503 e 504; permanecem os
+  testes de exaustão e de não-retry para 501, 505 e 4xx.
+- A configuração repõe o formato `textFormat.bold=True` em A1:AF1 com o mesmo
+  `sheetId`; a fake mantém esse estado sem duplicá-lo na segunda execução.
