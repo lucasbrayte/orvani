@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import unicodedata
 from dataclasses import dataclass
 from typing import Mapping
 
@@ -36,6 +37,45 @@ BODY_LIMIT_BYTES = 2_000_000
 RETRIES = 2
 DESCRIPTION_LIMIT = 4_000
 IMAGE_LIMIT = 4
+
+
+def normalize_unicode_text(value: object | None) -> str:
+    """Normaliza Unicode e espaços para comparações determinísticas."""
+    text = unicodedata.normalize("NFKC", "" if value is None else str(value))
+    return " ".join(text.split())
+
+
+def normalize_category_key(value: object | None) -> str:
+    return normalize_unicode_text(value).casefold()
+
+
+# These approved catalog labels remain the only automatic category outputs.
+CATEGORY_SOURCE_MAPPINGS: Mapping[str, tuple[str, str | None]] = {
+    "eletrônicos > áudio": ("Eletrônicos", "Áudio"),
+    "eletronicos > audio": ("Eletrônicos", "Áudio"),
+    "eletrônicos > acessórios": ("Eletrônicos", "Acessórios"),
+    "eletronicos > acessorios": ("Eletrônicos", "Acessórios"),
+    "moda > roupas": ("Moda", "Roupas"),
+    "moda > bolsas e acessórios": ("Moda", "Bolsas e Acessórios"),
+    "casa > iluminação": ("Casa", "Iluminação"),
+    "casa > organização": ("Casa", "Organização"),
+}
+CATEGORY_FIRST_SEGMENTS: Mapping[str, str] = {
+    "eletrônicos": "Eletrônicos",
+    "eletronicos": "Eletrônicos",
+    "moda": "Moda",
+    "casa": "Casa",
+}
+CATEGORY_KEYWORDS: tuple[tuple[str, str, str | None], ...] = (
+    ("fone", "Eletrônicos", "Áudio"),
+    ("headphone", "Eletrônicos", "Áudio"),
+    ("teclado", "Eletrônicos", "Acessórios"),
+    ("camisa", "Moda", "Roupas"),
+    ("jaqueta", "Moda", "Roupas"),
+    ("mochila", "Moda", "Bolsas e Acessórios"),
+    ("luminária", "Casa", "Iluminação"),
+    ("luminaria", "Casa", "Iluminação"),
+)
 
 
 @dataclass(frozen=True, slots=True)
