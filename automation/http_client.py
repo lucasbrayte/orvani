@@ -35,6 +35,12 @@ _BLOCKED_STATUS_CODES = {401, 403, 407}
 _NOT_FOUND_STATUS_CODES = {404, 410}
 _TEMPORARY_STATUS_CODES = {408, 425, 429, 500, 502, 503, 504}
 _BACKOFF_SECONDS = (0.5, 1.0)
+_REQUEST_TIMEOUT = httpx.Timeout(
+    connect=CONNECT_TIMEOUT_SECONDS,
+    read=READ_TIMEOUT_SECONDS,
+    write=READ_TIMEOUT_SECONDS,
+    pool=CONNECT_TIMEOUT_SECONDS,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,19 +71,16 @@ class SafeHttpClient:
         self._client = client or httpx.Client(
             follow_redirects=False,
             headers={"User-Agent": "Orvani affiliate catalog automation/1.0"},
-            timeout=httpx.Timeout(
-                connect=CONNECT_TIMEOUT_SECONDS,
-                read=READ_TIMEOUT_SECONDS,
-                write=READ_TIMEOUT_SECONDS,
-                pool=CONNECT_TIMEOUT_SECONDS,
-            ),
+            timeout=_REQUEST_TIMEOUT,
         )
+        self._owns_client = client is None
         self._dns_resolver = dns_resolver
         self._sleep = sleep
 
     def close(self) -> None:
-        """Close the underlying client, including one injected by a caller."""
-        self._client.close()
+        """Close only the HTTPX client this instance created itself."""
+        if self._owns_client:
+            self._client.close()
 
     def __enter__(self) -> "SafeHttpClient":
         return self
@@ -120,7 +123,12 @@ class SafeHttpClient:
                 redirected=redirect_count > 0,
             )
             try:
-                with self._client.stream("GET", current_url) as response:
+                with self._client.stream(
+                    "GET",
+                    current_url,
+                    follow_redirects=False,
+                    timeout=_REQUEST_TIMEOUT,
+                ) as response:
                     if response.status_code in _REDIRECT_STATUS_CODES:
                         current_url = self._next_redirect_url(response, current_url, redirect_count)
                         redirect_count += 1
@@ -163,7 +171,7 @@ class SafeHttpClient:
             raise UnsafeRedirectError("Limite de redirecionamentos excedido.")
         location = response.headers.get("location")
         if not location:
-            raise ConnectorError("Redirecionamento sem destino.")
+            raise UnsafeRedirectError("Redirecionamento sem destino.")
         return urljoin(current_url, location)
 
     @staticmethod

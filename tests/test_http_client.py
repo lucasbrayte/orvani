@@ -1,5 +1,5 @@
-import socket
 from collections import Counter
+import socket
 
 import httpx
 import pytest
@@ -15,44 +15,6 @@ from automation.models import (
     UnsafeRedirectError,
     UnsafeUrlError,
 )
-
-
-def _public_dns_resolver(*_args):
-    return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 443))]
-
-
-@pytest.fixture
-def http_client_factory():
-    clients = []
-
-    def factory(routes, *, dns_resolver=_public_dns_resolver, sleeps=None):
-        calls = Counter()
-        queued_routes = {
-            url: list(response) if isinstance(response, list) else [response]
-            for url, response in routes.items()
-        }
-
-        def handler(request):
-            url = str(request.url)
-            calls[url] += 1
-            response = queued_routes[url].pop(0)
-            if isinstance(response, Exception):
-                raise response
-            status_code, headers, body = response
-            return httpx.Response(status_code, headers=headers, content=body, request=request)
-
-        client = SafeHttpClient(
-            client=httpx.Client(transport=httpx.MockTransport(handler)),
-            dns_resolver=dns_resolver,
-            sleep=(sleeps.append if sleeps is not None else lambda _seconds: None),
-        )
-        clients.append(client)
-        return client, calls
-
-    yield factory
-
-    for client in clients:
-        client.close()
 
 
 def test_returns_bounded_html_response_with_normalized_media_type(http_client_factory):
@@ -203,3 +165,102 @@ def test_rejects_a_sixth_redirect(http_client_factory):
         client.get("https://example.com/0", ("example.com",), ("text/html",))
 
     assert sum(calls.values()) == 6
+
+
+def test_disables_redirects_for_an_injected_client_configured_to_follow(http_client_factory):
+    client, calls = http_client_factory(
+        {
+            "https://meli.la/a": (302, {"location": "https://evil.example/item"}, b""),
+            "https://evil.example/item": (200, {"content-type": "text/html"}, b"unsafe"),
+        },
+        client_builder=lambda transport: httpx.Client(
+            transport=transport,
+            follow_redirects=True,
+        ),
+    )
+
+    with pytest.raises(UnsafeRedirectError):
+        client.get("https://meli.la/a", ("meli.la",), ("text/html",))
+
+    assert calls == Counter({"https://meli.la/a": 1})
+
+
+def test_enforces_approved_timeouts_when_the_injected_client_disables_them(http_client_factory):
+    requests = []
+    client, _calls = http_client_factory(
+        {"https://example.com/item": (200, {"content-type": "text/html"}, b"ok")},
+        requests=requests,
+        client_builder=lambda transport: httpx.Client(transport=transport, timeout=None),
+    )
+
+    client.get("https://example.com/item", ("example.com",), ("text/html",))
+
+    assert requests[0].extensions["timeout"] == {
+        "connect": 5,
+        "read": 15,
+        "write": 15,
+        "pool": 5,
+    }
+
+
+class _ChunkedBody(httpx.SyncByteStream):
+    def __init__(self, chunks):
+        self._chunks = chunks
+
+    def __iter__(self):
+        yield from self._chunks
+
+
+def test_accepts_exactly_two_megabytes_streamed_in_multiple_chunks(http_client_factory):
+    chunks = (b"a" * 800_000, b"b" * 700_000, b"c" * 500_000)
+    client, _calls = http_client_factory({
+        "https://example.com/item": (200, {"content-type": "text/html"}, _ChunkedBody(chunks)),
+    })
+
+    response = client.get("https://example.com/item", ("example.com",), ("text/html",))
+
+    assert response.body == b"".join(chunks)
+    assert len(response.body) == BODY_LIMIT_BYTES
+
+
+def test_rejects_stream_when_its_final_chunk_crosses_two_megabytes(http_client_factory):
+    chunks = (b"a" * 800_000, b"b" * 1_199_999, b"c" * 2)
+    client, _calls = http_client_factory({
+        "https://example.com/item": (200, {"content-type": "text/html"}, _ChunkedBody(chunks)),
+    })
+
+    with pytest.raises(ResponseTooLargeError):
+        client.get("https://example.com/item", ("example.com",), ("text/html",))
+
+
+def test_rejects_redirect_without_location(http_client_factory):
+    client, calls = http_client_factory({
+        "https://example.com/item": (302, {}, b""),
+    })
+
+    with pytest.raises(UnsafeRedirectError):
+        client.get("https://example.com/item", ("example.com",), ("text/html",))
+
+    assert calls == Counter({"https://example.com/item": 1})
+
+
+def test_rejects_redirect_cycle_after_the_fixed_redirect_limit(http_client_factory):
+    client, calls = http_client_factory({
+        "https://example.com/a": [(302, {"location": "/b"}, b"")] * 3,
+        "https://example.com/b": [(302, {"location": "/a"}, b"")] * 3,
+    })
+
+    with pytest.raises(UnsafeRedirectError):
+        client.get("https://example.com/a", ("example.com",), ("text/html",))
+
+    assert sum(calls.values()) == 6
+
+
+def test_closing_safe_client_does_not_close_an_injected_shared_client():
+    raw_client = httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200, request=request)))
+    client = SafeHttpClient(client=raw_client)
+
+    client.close()
+
+    assert raw_client.is_closed is False
+    raw_client.close()
