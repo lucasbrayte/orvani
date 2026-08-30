@@ -319,9 +319,13 @@ def _product_belongs_to_page(
         for value in (product.get("mainEntityOfPage"), product.get("url"), product.get("@id"))
         if (reference := _reference_url(value)) is not None
     )
-    if not references:
+    absolute_references = tuple(reference for reference in references if not reference.startswith("#"))
+    if not absolute_references:
         return designated
-    return all(_matches_page_reference(reference, page_urls, allowed_hosts) for reference in references)
+    return all(
+        _matches_page_reference(reference, page_urls, allowed_hosts)
+        for reference in absolute_references
+    )
 
 
 def _reference_url(value: object) -> str | None:
@@ -337,7 +341,7 @@ def _matches_page_reference(
     candidate: str, page_urls: tuple[str, ...], allowed_hosts: tuple[str, ...]
 ) -> bool:
     if candidate.startswith("#"):
-        return True
+        return False
     if not _is_trusted_page_url(candidate, allowed_hosts):
         return False
     candidate_key = _page_key(candidate)

@@ -232,6 +232,101 @@ def test_rejects_main_product_designated_by_a_foreign_webpage():
         ShopeeConnector(ScriptedHttpClient((_html(url, html),)), PARTNERS["shopee"]).fetch(url)
 
 
+def test_rejects_a_top_level_product_fragment_id_without_page_association():
+    # A fragment identifies a graph node, not the terminal page's main product.
+    from automation.connectors.shopee import ShopeeConnector
+
+    url = "https://shopee.com.br/produto-principal"
+    html = b'''<script type="application/ld+json">{
+      "@type": "Product", "@id": "#produto-relacionado", "sku": "123.456",
+      "name": "Produto relacionado", "offers": {
+        "@type": "Offer", "price": "9.90", "priceCurrency": "BRL"
+      }
+    }</script>'''
+
+    with pytest.raises(InvalidProductDataError):
+        ShopeeConnector(ScriptedHttpClient((_html(url, html),)), PARTNERS["shopee"]).fetch(url)
+
+
+def test_does_not_combine_a_webpage_main_entity_and_product_across_jsonld_blocks():
+    # Cross-block graph resolution would allow an unrelated Product to borrow another block's mainEntity.
+    from automation.connectors.shopee import ShopeeConnector
+
+    url = "https://shopee.com.br/produto-principal"
+    html = b'''<script type="application/ld+json">{
+      "@type": "WebPage", "@id": "https://shopee.com.br/produto-principal",
+      "mainEntity": {"@id": "#produto-principal"}
+    }</script>
+    <script type="application/ld+json">{
+      "@type": "Product", "@id": "#produto-principal", "sku": "123.456",
+      "name": "Produto separado", "offers": {
+        "@type": "Offer", "price": "9.90", "priceCurrency": "BRL"
+      }
+    }</script>'''
+
+    with pytest.raises(InvalidProductDataError):
+        ShopeeConnector(ScriptedHttpClient((_html(url, html),)), PARTNERS["shopee"]).fetch(url)
+
+
+def test_accepts_a_webpage_main_entity_resolved_from_its_own_jsonld_graph():
+    # Rejecting a graph-local mainEntity would discard a normal structured product identity.
+    from automation.connectors.shopee import ShopeeConnector
+
+    url = "https://shopee.com.br/produto-principal"
+    html = b'''<script type="application/ld+json">{
+      "@graph": [
+        {"@type": "WebPage", "@id": "https://shopee.com.br/produto-principal",
+          "mainEntity": {"@id": "#produto-principal"}},
+        {"@type": ["https://schema.org/Product"], "@id": "#produto-principal",
+          "sku": "123.456", "name": "Produto principal", "offers": {
+            "@type": "Offer", "price": "9.90", "priceCurrency": "BRL"
+          }}
+      ]
+    }</script>'''
+
+    value = ShopeeConnector(ScriptedHttpClient((_html(url, html),)), PARTNERS["shopee"]).fetch(url)
+
+    assert value.external_id == "123.456"
+
+
+def test_accepts_top_level_product_with_absolute_main_entity_page_reference():
+    # Requiring a WebPage wrapper would reject public Product JSON-LD that names its terminal page.
+    from automation.connectors.shopee import ShopeeConnector
+
+    url = "https://shopee.com.br/produto-principal"
+    html = b'''<script type="application/ld+json">{
+      "@type": ["Product"], "mainEntityOfPage": "https://shopee.com.br/produto-principal",
+      "sku": "123.456", "name": "Produto principal", "offers": {
+        "@type": "Offer", "price": "9.90", "priceCurrency": "BRL"
+      }
+    }</script>'''
+
+    value = ShopeeConnector(ScriptedHttpClient((_html(url, html),)), PARTNERS["shopee"]).fetch(url)
+
+    assert value.external_id == "123.456"
+
+
+def test_accepts_top_level_product_referencing_a_trusted_canonical_page():
+    # A trusted canonical is an explicit page identity when the terminal URL was redirected.
+    from automation.connectors.shopee import ShopeeConnector
+
+    url = "https://shopee.com.br/produto-principal"
+    canonical = "https://shopee.com.br/produto-canonico"
+    html = b'''<link rel="canonical" href="https://shopee.com.br/produto-canonico">
+    <script type="application/ld+json">{
+      "@type": "Product", "url": "https://shopee.com.br/produto-canonico",
+      "sku": "123.456", "name": "Produto canonico", "offers": {
+        "@type": "Offer", "price": "9.90", "priceCurrency": "BRL"
+      }
+    }</script>'''
+
+    value = ShopeeConnector(ScriptedHttpClient((_html(url, html),)), PARTNERS["shopee"]).fetch(url)
+
+    assert value.external_id == "123.456"
+    assert value.source_url == url
+    assert canonical != value.source_url
+
+
 def test_registry_contains_mercado_then_shopee_while_future_modules_are_absent():
     # Omitting Shopee or reordering implemented connectors changes deterministic registration.
     from automation.connectors.base import build_connector_registry
@@ -297,6 +392,30 @@ def test_batches_filter_exact_active_link_and_status_values_without_mutating_rec
     assert [[record.row_number for record in batch] for batch in batches] == [[2, 6, 9, 10]]
     assert tuple((row.status, row.message) for row in rows) == original
     assert batches[0][0] is not eligible
+
+
+def test_batches_use_the_custom_positive_size_in_messages_without_mutating_records():
+    # A fixed five-link message would mislead manual conversion when a smaller requested limit is used.
+    from automation.connectors.shopee import build_conversion_batches
+
+    rows = tuple(_record(row_number) for row_number in range(2, 7))
+    original = tuple((row.status, row.message) for row in rows)
+
+    batches = build_conversion_batches(rows, batch_size=2)
+
+    assert [len(batch) for batch in batches] == [2, 2, 1]
+    assert [[record.row_number for record in batch] for batch in batches] == [[2, 3], [4, 5], [6]]
+    assert [[record.message for record in batch] for batch in batches] == [
+        ["Lote Shopee 01 — máximo 2 links", "Lote Shopee 01 — máximo 2 links"],
+        ["Lote Shopee 02 — máximo 2 links", "Lote Shopee 02 — máximo 2 links"],
+        ["Lote Shopee 03 — máximo 2 links"],
+    ]
+    assert all(
+        record.status is ImportStatus.AGUARDANDO_CONVERSAO
+        for batch in batches
+        for record in batch
+    )
+    assert tuple((row.status, row.message) for row in rows) == original
 
 
 @pytest.mark.parametrize("invalid_batch_size", (0, -1, 1.5, True, "5", None))
