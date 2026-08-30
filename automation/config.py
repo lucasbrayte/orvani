@@ -68,6 +68,7 @@ CATEGORY_FIRST_SEGMENTS: Mapping[str, str] = {
 }
 CATEGORY_KEYWORDS: tuple[tuple[str, str, str | None], ...] = (
     ("fone", "Eletrônicos", "Áudio"),
+    ("fones", "Eletrônicos", "Áudio"),
     ("headphone", "Eletrônicos", "Áudio"),
     ("teclado", "Eletrônicos", "Acessórios"),
     ("camisa", "Moda", "Roupas"),

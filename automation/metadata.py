@@ -84,43 +84,60 @@ def clean_text(value: object | None) -> str:
 
 
 def parse_decimal(value: object | None) -> Decimal | None:
-    """Parse common public price formats without ever performing float arithmetic."""
+    """Parse one complete, unambiguous public monetary value."""
     if value is None or isinstance(value, bool):
         return None
     if isinstance(value, Decimal):
         return value if value.is_finite() else None
+    if isinstance(value, (int, float)):
+        try:
+            parsed = Decimal(str(value))
+        except InvalidOperation:
+            return None
+        return parsed if parsed.is_finite() else None
+    if not isinstance(value, str):
+        return None
     text = normalize_unicode_text(value)
-    numeric = re.sub(r"[^0-9,\.\-+]", "", text)
-    if not numeric or numeric in {"+", "-"}:
+    if not text:
         return None
-    if numeric.count("+") + numeric.count("-") > 1 or ("+" in numeric[1:] or "-" in numeric[1:]):
+    sign = ""
+    if text[0] in "+-":
+        sign, text = text[0], text[1:].lstrip()
+    prefix, text = _strip_prefix_currency(text)
+    suffix, text = _strip_suffix_currency(text)
+    if prefix is not None and suffix is not None:
         return None
-
-    commas = [index for index, character in enumerate(numeric) if character == ","]
-    dots = [index for index, character in enumerate(numeric) if character == "."]
-    if commas and dots:
-        decimal_separator = "," if commas[-1] > dots[-1] else "."
-        grouping_separator = "." if decimal_separator == "," else ","
-        numeric = numeric.replace(grouping_separator, "").replace(decimal_separator, ".")
-    elif commas:
-        numeric = _normalize_single_separator(numeric, ",")
-    elif dots:
-        numeric = _normalize_single_separator(numeric, ".")
-    if not re.fullmatch(r"[+-]?\d+(?:\.\d+)?", numeric):
+    numeric = text
+    if re.fullmatch(r"\d{1,3}(?:\.\d{3})+,\d{1,2}", numeric):
+        numeric = numeric.replace(".", "").replace(",", ".")
+    elif re.fullmatch(r"\d{1,3}(?:,\d{3})+\.\d{1,2}", numeric):
+        numeric = numeric.replace(",", "")
+    elif re.fullmatch(r"\d+(?:,\d{1,2})?", numeric):
+        numeric = numeric.replace(",", ".")
+    elif not re.fullmatch(r"\d+(?:\.\d{1,2})?", numeric):
         return None
     try:
-        parsed = Decimal(numeric)
+        parsed = Decimal(sign + numeric)
     except InvalidOperation:
         return None
     return parsed if parsed.is_finite() else None
 
 
-def _normalize_single_separator(value: str, separator: str) -> str:
-    positions = [index for index, character in enumerate(value) if character == separator]
-    trailing_digits = len(value) - positions[-1] - 1
-    if trailing_digits in {1, 2}:
-        return value.replace(separator, "", len(positions) - 1).replace(separator, ".", 1)
-    return value.replace(separator, "")
+def _strip_prefix_currency(value: str) -> tuple[str | None, str]:
+    symbol = re.match(r"(?i)^(R\$|US\$|\$|€|£)\s*", value)
+    if symbol:
+        return symbol.group(1), value[symbol.end():]
+    code = re.match(r"(?i)^(BRL|USD|EUR|GBP)\s+", value)
+    if code:
+        return code.group(1), value[code.end():]
+    return None, value
+
+
+def _strip_suffix_currency(value: str) -> tuple[str | None, str]:
+    currency = re.search(r"(?i)\s+(R\$|US\$|\$|€|£|BRL|USD|EUR|GBP)$", value)
+    if currency:
+        return currency.group(1), value[:currency.start()]
+    return None, value
 
 
 def unique_https_images(images: Iterable[object]) -> tuple[str, ...]:
@@ -184,22 +201,101 @@ def extract_product_metadata(html: str, source_url: str) -> ExtractedProductData
     parser = _MetadataParser()
     parser.feed(html)
     parser.close()
-    for product in _jsonld_products(parser.jsonld_blocks):
-        result = _extract_jsonld_product(product, parser.metas)
-        if result is not None:
-            return result
+    for document in _jsonld_documents(parser.jsonld_blocks):
+        index = _jsonld_id_index(document)
+        products, has_designated_main = _primary_products(document, index, parser.metas)
+        for product in products:
+            result = _extract_jsonld_product(product, index, parser.metas)
+            if result is not None:
+                return result
+        if has_designated_main:
+            continue
     return _extract_open_graph(parser.metas)
 
 
-def _jsonld_products(blocks: Iterable[str]) -> Iterable[Mapping[str, Any]]:
+def _jsonld_documents(blocks: Iterable[str]) -> Iterable[object]:
     for block in blocks:
         try:
-            parsed = json.loads(block)
+            yield json.loads(block)
         except (TypeError, json.JSONDecodeError):
             continue
-        for node in _walk_json(parsed):
-            if _has_type(node, "product"):
-                yield node
+
+
+def _jsonld_id_index(document: object) -> dict[str, Mapping[str, Any]]:
+    index: dict[str, Mapping[str, Any]] = {}
+    for node in _walk_json(document):
+        identifier = node.get("@id")
+        if isinstance(identifier, str):
+            current = index.get(identifier)
+            if current is None or len(node) > len(current):
+                index[identifier] = node
+    return index
+
+
+def _primary_products(
+    document: object,
+    index: Mapping[str, Mapping[str, Any]],
+    metas: Iterable[tuple[str, str]],
+) -> tuple[tuple[Mapping[str, Any], ...], bool]:
+    top_nodes = _top_level_nodes(document)
+    for node in top_nodes:
+        if "mainEntity" in node:
+            return _resolved_products(node.get("mainEntity"), index), True
+    if isinstance(document, Mapping) and _has_type(document, "product"):
+        return (document,), True
+
+    graph_products = tuple(node for node in top_nodes if _has_type(node, "product"))
+    main_page_products = tuple(node for node in graph_products if node.get("mainEntityOfPage"))
+    if main_page_products:
+        return main_page_products, True
+
+    og_title = _meta_value(metas, "og:title", "twitter:title")
+    if og_title:
+        matching_products = tuple(
+            node for node in graph_products if clean_text(node.get("name")) == og_title
+        )
+        if matching_products:
+            return matching_products, True
+    return graph_products, False
+
+
+def _top_level_nodes(document: object) -> tuple[Mapping[str, Any], ...]:
+    if isinstance(document, list):
+        return tuple(node for node in document if isinstance(node, Mapping))
+    if not isinstance(document, Mapping):
+        return ()
+    nodes: list[Mapping[str, Any]] = [document]
+    graph = document.get("@graph")
+    if isinstance(graph, list):
+        nodes.extend(node for node in graph if isinstance(node, Mapping))
+    return tuple(nodes)
+
+
+def _resolved_products(
+    value: object,
+    index: Mapping[str, Mapping[str, Any]],
+) -> tuple[Mapping[str, Any], ...]:
+    values = value if isinstance(value, list) else (value,)
+    products: list[Mapping[str, Any]] = []
+    for candidate in values:
+        resolved = _resolve_node(candidate, index)
+        if resolved is not None and _has_type(resolved, "product"):
+            products.append(resolved)
+    return tuple(products)
+
+
+def _resolve_node(
+    value: object,
+    index: Mapping[str, Mapping[str, Any]],
+) -> Mapping[str, Any] | None:
+    if isinstance(value, str):
+        return index.get(value)
+    if not isinstance(value, Mapping):
+        return None
+    identifier = value.get("@id")
+    if isinstance(identifier, str) and identifier in index:
+        return index[identifier]
+    return value
 
 
 def _walk_json(value: object) -> Iterable[Mapping[str, Any]]:
@@ -223,12 +319,14 @@ def _has_type(value: Mapping[str, Any], expected: str) -> bool:
 
 
 def _extract_jsonld_product(
-    product: Mapping[str, Any], metas: list[tuple[str, str]]
+    product: Mapping[str, Any],
+    index: Mapping[str, Mapping[str, Any]],
+    metas: list[tuple[str, str]],
 ) -> ExtractedProductData | None:
     name = clean_text(product.get("name"))
     if not name:
         return None
-    for offer in _offer_nodes(product.get("offers")):
+    for offer in _offer_nodes(product.get("offers"), index):
         offer_data = _offer_data(offer)
         if offer_data is None:
             continue
@@ -250,9 +348,14 @@ def _extract_jsonld_product(
     return None
 
 
-def _offer_nodes(value: object) -> Iterable[Mapping[str, Any]]:
-    for node in _walk_json(value):
-        if _has_type(node, "offer"):
+def _offer_nodes(
+    value: object,
+    index: Mapping[str, Mapping[str, Any]],
+) -> Iterable[Mapping[str, Any]]:
+    values = value if isinstance(value, list) else (value,)
+    for candidate in values:
+        node = _resolve_node(candidate, index)
+        if node is not None and _has_type(node, "offer"):
             yield node
 
 

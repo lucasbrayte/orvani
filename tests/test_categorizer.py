@@ -22,6 +22,19 @@ def test_keyword_is_used_after_source_category_rules():
     )
 
 
+def test_keyword_matches_complete_unicode_tokens_and_explicit_plural_forms():
+    # Substring matching would classify "fonemas", while the configured plural must still match.
+    assert categorize(None, "FONES bluetooth", None) == CategoryDecision(
+        "Eletrônicos", "Áudio", True
+    )
+    assert categorize(None, "fonemas para estudar", None) == CategoryDecision(
+        "Outros", None, False
+    )
+    assert categorize(None, "LUMINA\u0301RIA portátil", None) == CategoryDecision(
+        "Casa", "Iluminação", True
+    )
+
+
 def test_unknown_category_requires_review():
     # Treating arbitrary text as a known category would silently misclassify a product.
     assert categorize(None, "Objeto singular", "Sem classificação") == CategoryDecision(

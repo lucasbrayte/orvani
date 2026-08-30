@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from .config import (
@@ -40,6 +41,7 @@ def categorize(
         normalize_category_key(description),
     ))
     for keyword, category, subcategory in CATEGORY_KEYWORDS:
-        if normalize_category_key(keyword) in searchable:
+        normalized_keyword = normalize_category_key(keyword)
+        if re.search(r"(?<!\w)" + re.escape(normalized_keyword) + r"(?!\w)", searchable):
             return CategoryDecision(category, subcategory, True)
     return CategoryDecision("Outros", None, False)
