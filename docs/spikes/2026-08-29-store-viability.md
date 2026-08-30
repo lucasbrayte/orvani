@@ -8,8 +8,9 @@ Esta verificação foi somente de leitura. Não houve escrita na planilha, uso d
 credenciais, login, cookies, bypass de antibot, deploy, nem retenção de URLs de
 afiliado, caminhos, consultas, fragmentos ou corpos de resposta.
 
-O CSV público foi baixado com `User-Agent: Orvani-read-only-spike/1.0`, limitado
-a 2.000.000 bytes. A linha de cabeçalho foi a 4 e continha os 20 campos
+O CSV público foi baixado com `User-Agent: Orvani-read-only-spike/1.0`; a leitura
+podia consumir até 2.000.001 bytes, como sentinela para detectar se o limite
+aceito de 2.000.000 bytes tinha sido excedido. A linha de cabeçalho foi a 4 e continha os 20 campos
 esperados. Foram aceitas 11 linhas ativas. A observação existente foi mantida:
 a linha 8, plataforma Hotmart, produto “Curso Vitrine de Afiliado do Zero”,
 tem host `www.darlanevandro.com.br`, incompatível com a regra de domínio
