@@ -11,6 +11,10 @@ from automation.models import (
     BlockedByStoreError,
     InvalidProductDataError,
     ProductNotFoundError,
+    TemporaryFetchError,
+    UnexpectedContentTypeError,
+    UnsafeRedirectError,
+    UnsafeUrlError,
     UnsupportedUrlError,
 )
 
@@ -280,6 +284,216 @@ def test_rejects_structured_url_ids_from_foreign_hosts():
         )
 
     assert len(client.calls) == 1
+
+
+def test_uses_only_the_product_designated_as_the_terminal_page_main_entity(api_fixture):
+    # Accepting any nested JSON-LD node would choose a related product instead of the page product.
+    from automation.connectors.mercado_livre import MercadoLivreConnector
+
+    source_url = "https://www.mercadolivre.com.br/produto-principal"
+    html = b'''<script type="application/ld+json">{
+      "@context": "https://schema.org",
+      "@type": "WebPage",
+      "@id": "https://www.mercadolivre.com.br/produto-principal",
+      "mainEntity": {
+        "@type": ["https://schema.org/Product"],
+        "sku": "MLB1234567890",
+        "mainEntityOfPage": "https://www.mercadolivre.com.br/produto-principal",
+        "isRelatedTo": {"@type": "Product", "sku": "MLB9999999999"}
+      }
+    }</script>'''
+    client = ScriptedHttpClient((_html(source_url, html), _api(api_fixture)))
+
+    value = MercadoLivreConnector(client, PARTNERS["mercado_livre"]).fetch(source_url)
+
+    assert value.external_id == "MLB1234567890"
+    assert len(client.calls) == 2
+
+
+def test_uses_a_graph_product_referenced_by_the_terminal_webpage(api_fixture):
+    # Ignoring WebPage/mainEntity references inside @graph would discard a valid main product.
+    from automation.connectors.mercado_livre import MercadoLivreConnector
+
+    source_url = "https://www.mercadolivre.com.br/produto-principal"
+    html = b'''<script type="application/ld+json">{
+      "@context": "https://schema.org",
+      "@graph": [
+        {"@type": "WebPage", "@id": "https://www.mercadolivre.com.br/produto-principal",
+         "mainEntity": {"@id": "#main-product"}},
+        {"@type": "https://schema.org/Product", "@id": "#main-product",
+         "sku": "MLB1234567890", "mainEntityOfPage": "https://www.mercadolivre.com.br/produto-principal"}
+      ]
+    }</script>'''
+    client = ScriptedHttpClient((_html(source_url, html), _api(api_fixture)))
+
+    value = MercadoLivreConnector(client, PARTNERS["mercado_livre"]).fetch(source_url)
+
+    assert value.external_id == "MLB1234567890"
+    assert len(client.calls) == 2
+
+
+@pytest.mark.parametrize(
+    "html",
+    (
+        b'''<script type="application/ld+json">{
+          "@type": "Organization", "brand": {"mpn": "MLB1234567890"}
+        }</script>''',
+        b'''<script type="application/ld+json">{
+          "@type": "Product", "url": "https://www.mercadolivre.com.br/produto-principal",
+          "isRelatedTo": {"@type": "Product", "sku": "MLB1234567890"}
+        }</script>''',
+        b'''<script type="application/ld+json">{
+          "@type": "Product", "sku": "MLB1234567890",
+          "mainEntityOfPage": "https://www.mercadolivre.com.br/outra-pagina"
+        }</script>''',
+        b'''<script type="application/ld+json">{
+          "@type": "Product", "sku": "MLB1234567890",
+          "url": "https://evil.example/produto-principal"
+        }</script>''',
+        b'''<script type="application/ld+json">{
+          "@graph": [
+            {"@type": "WebPage", "@id": "https://evil.example/produto-principal",
+             "mainEntity": {"@id": "#main-product"}},
+            {"@type": "Product", "@id": "#main-product", "sku": "MLB1234567890",
+             "mainEntityOfPage": "https://www.mercadolivre.com.br/produto-principal"}
+          ]
+        }</script>''',
+    ),
+)
+def test_rejects_unrelated_or_foreign_structured_product_identities(html):
+    # Identity from a brand, related product, or a different page must never trigger the API.
+    from automation.connectors.mercado_livre import MercadoLivreConnector
+
+    source_url = "https://www.mercadolivre.com.br/produto-principal"
+    client = ScriptedHttpClient((_html(source_url, html),))
+
+    with pytest.raises(InvalidProductDataError):
+        MercadoLivreConnector(client, PARTNERS["mercado_livre"]).fetch(source_url)
+
+    assert len(client.calls) == 1
+
+
+@pytest.mark.parametrize(
+    "body",
+    (
+        b"\xff",
+        b'{"id":',
+        b"[]",
+        object(),
+    ),
+)
+def test_rejects_invalid_or_unexpected_api_json_without_html_fallback(html_fixture, body):
+    # Decode/parser failures must be a typed API failure, never a fallback with stale HTML.
+    from automation.connectors.mercado_livre import MercadoLivreConnector
+
+    client = ScriptedHttpClient((
+        _html("https://www.mercadolivre.com.br/MLB-1234567890-fone", html_fixture),
+        HttpResponse(
+            url="https://api.mercadolibre.com/items/MLB1234567890",
+            status_code=200,
+            media_type="application/json",
+            body=body,
+        ),
+    ))
+
+    with pytest.raises(InvalidProductDataError):
+        MercadoLivreConnector(client, PARTNERS["mercado_livre"]).fetch(
+            "https://www.mercadolivre.com.br/MLB-1234567890-fone"
+        )
+
+    assert len(client.calls) == 2
+
+
+@pytest.mark.parametrize(
+    "api_error",
+    (
+        BlockedByStoreError("bloqueada"),
+        TemporaryFetchError("indisponível"),
+        UnexpectedContentTypeError("HTML no endpoint JSON"),
+    ),
+)
+def test_uses_already_fetched_valid_html_only_for_expected_api_unavailability(
+    html_fixture, api_error
+):
+    # Retrying HTML or issuing another endpoint request would exceed the safe fallback contract.
+    from automation.connectors.mercado_livre import MercadoLivreConnector
+
+    client = ScriptedHttpClient((
+        _html("https://www.mercadolivre.com.br/MLB-1234567890-fone", html_fixture),
+        api_error,
+    ))
+
+    value = MercadoLivreConnector(client, PARTNERS["mercado_livre"]).fetch(
+        "https://meli.la/affiliate-kept"
+    )
+
+    assert value.external_id == "MLB1234567890"
+    assert len(client.calls) == 2
+
+
+def test_expected_api_unavailability_still_rejects_invalid_html_metadata():
+    # Fallback must not manufacture a product when the already-fetched HTML lacks required data.
+    from automation.connectors.mercado_livre import MercadoLivreConnector
+
+    client = ScriptedHttpClient((
+        _html(
+            "https://www.mercadolivre.com.br/MLB-1234567890-fone",
+            b"<html><body>sem metadados de produto</body></html>",
+        ),
+        BlockedByStoreError("bloqueada"),
+    ))
+
+    with pytest.raises(InvalidProductDataError):
+        MercadoLivreConnector(client, PARTNERS["mercado_livre"]).fetch(
+            "https://meli.la/affiliate-kept"
+        )
+
+    assert len(client.calls) == 2
+
+
+@pytest.mark.parametrize(
+    "api_error",
+    (
+        UnsafeUrlError("DNS inseguro."),
+        UnsafeRedirectError("redirect inseguro."),
+        ProductNotFoundError("404"),
+        ProductNotFoundError("410"),
+        InvalidProductDataError("API malformada"),
+    ),
+)
+def test_never_falls_back_for_security_not_found_or_malformed_api_errors(html_fixture, api_error):
+    # These errors are authoritative/safety failures and must not be masked by metadata.
+    from automation.connectors.mercado_livre import MercadoLivreConnector
+
+    client = ScriptedHttpClient((
+        _html("https://www.mercadolivre.com.br/MLB-1234567890-fone", html_fixture),
+        api_error,
+    ))
+
+    with pytest.raises(type(api_error)):
+        MercadoLivreConnector(client, PARTNERS["mercado_livre"]).fetch(
+            "https://www.mercadolivre.com.br/MLB-1234567890-fone"
+        )
+
+    assert len(client.calls) == 2
+
+
+def test_never_falls_back_when_api_item_id_does_not_match_terminal_url(html_fixture, api_fixture):
+    # Mapping a mismatched API response would publish data for an identity other than the page item.
+    from automation.connectors.mercado_livre import MercadoLivreConnector
+
+    api_fixture["id"] = "MLB9999999999"
+    client = ScriptedHttpClient((
+        _html("https://www.mercadolivre.com.br/MLB-1234567890-fone", html_fixture),
+        _api(api_fixture),
+    ))
+
+    with pytest.raises(InvalidProductDataError):
+        MercadoLivreConnector(client, PARTNERS["mercado_livre"]).fetch(
+            "https://www.mercadolivre.com.br/MLB-1234567890-fone"
+        )
+
+    assert len(client.calls) == 2
 
 
 def test_fetch_rejects_unsupported_url_without_http_call():
