@@ -5,14 +5,18 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime
 from importlib import import_module
-from importlib.util import find_spec
 from typing import Protocol, runtime_checkable
 
 from ..categorizer import categorize
 from ..config import PARTNERS, PartnerConfig
 from ..http_client import SafeHttpClient
 from ..metadata import ExtractedProductData, extract_product_metadata
-from ..models import ProductSnapshot, UnsupportedUrlError
+from ..models import (
+    ConfigurationError,
+    InvalidProductDataError,
+    ProductSnapshot,
+    UnsupportedUrlError,
+)
 from ..security import validate_https_url
 
 
@@ -25,7 +29,9 @@ _Clock = Callable[[], datetime]
 class ProductConnector(Protocol):
     """The minimum behavior required to select and fetch a store connector."""
 
-    partner_key: str
+    @property
+    def partner_key(self) -> str:
+        """Stable partner identifier used by the registry and synchronization."""
 
     def supports(self, url: str) -> bool:
         """Return whether the connector can safely handle *url* without network I/O."""
@@ -103,8 +109,6 @@ class MetadataConnectorBase:
         """Check URL shape and configured partner hosts without resolving or fetching."""
         try:
             validate_https_url(url, self.allowed_hosts)
-        except UnsupportedUrlError:
-            raise
         except Exception:
             return False
         return True
@@ -122,7 +126,11 @@ class MetadataConnectorBase:
             response.body.decode("utf-8", errors="replace"),
             response.url,
         )
-        external_id, catalog_id = self.extract_identifiers(metadata, response.url)
+        if not isinstance(metadata, ExtractedProductData):
+            raise InvalidProductDataError("O conector retornou metadados inválidos.")
+        external_id, catalog_id = self._validated_identifiers(
+            self.extract_identifiers(metadata, response.url)
+        )
         return snapshot_from_metadata(
             partner_key=self.partner_key,
             external_id=external_id,
@@ -144,6 +152,19 @@ class MetadataConnectorBase:
         """Hook for deriving trusted product and optional catalog identifiers."""
         raise NotImplementedError
 
+    @staticmethod
+    def _validated_identifiers(value: object) -> tuple[str, str | None]:
+        if not isinstance(value, tuple) or len(value) != 2:
+            raise InvalidProductDataError("O conector retornou identificadores inválidos.")
+        external_id, catalog_id = value
+        if not isinstance(external_id, str) or not external_id.strip():
+            raise InvalidProductDataError("O produto não tem um ID externo válido.")
+        if catalog_id is not None and (
+            not isinstance(catalog_id, str) or not catalog_id.strip()
+        ):
+            raise InvalidProductDataError("O produto tem um ID de catálogo inválido.")
+        return external_id, catalog_id
+
 
 class ConnectorRegistry:
     """Select exactly one stateless connector without performing network I/O."""
@@ -152,7 +173,14 @@ class ConnectorRegistry:
         self._connectors = tuple(connectors)
 
     def select(self, url: str) -> ProductConnector:
-        matches = tuple(connector for connector in self._connectors if connector.supports(url))
+        matches: list[ProductConnector] = []
+        for connector in self._connectors:
+            try:
+                supported = connector.supports(url)
+            except Exception:
+                continue
+            if supported is True:
+                matches.append(connector)
         if len(matches) != 1:
             raise UnsupportedUrlError("Nenhum ou mais de um conector suporta a URL.")
         return matches[0]
@@ -170,19 +198,30 @@ def build_connector_registry(
     http_client: SafeHttpClient,
     partners: Mapping[str, PartnerConfig] = PARTNERS,
 ) -> ConnectorRegistry:
-    """Build the registry from connector modules that have been implemented so far.
-
-    Connector modules arrive in later tasks.  Probing their module specs keeps this
-    common contract importable before those concrete implementations exist.
-    """
+    """Build the registry from concrete modules that have been implemented so far."""
     connectors: list[ProductConnector] = []
     for partner_key, class_name in _FUTURE_CONNECTORS:
         module_name = f"{__package__}.{partner_key}"
-        if find_spec(module_name) is None:
-            continue
+        try:
+            module = import_module(module_name)
+        except ModuleNotFoundError as error:
+            if error.name == module_name:
+                continue
+            raise
         partner = partners.get(partner_key)
         if partner is None:
-            continue
-        connector_class = getattr(import_module(module_name), class_name)
+            raise ConfigurationError(
+                f"Configuração do parceiro ausente para o conector {partner_key}."
+            )
+        try:
+            connector_class = getattr(module, class_name)
+        except AttributeError as error:
+            raise ConfigurationError(
+                f"Classe {class_name} ausente no conector {partner_key}."
+            ) from error
+        if not callable(connector_class):
+            raise ConfigurationError(
+                f"Classe {class_name} inválida no conector {partner_key}."
+            )
         connectors.append(connector_class(http_client, partner))
     return ConnectorRegistry(connectors)
