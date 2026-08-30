@@ -238,7 +238,8 @@ def test_batch_write_transports_many_ranges_once_with_typed_numbers_and_dates(fa
 def test_batch_write_rejects_invalid_updates_before_the_transport_call(fake_sheets):
     from automation.sheets import batch_write
 
-    with pytest.raises(SheetSchemaError):
+    _set_sheet_contract(fake_sheets, "Importações", IMPORT_HEADERS)
+    with pytest.raises(SheetSchemaError, match="tipo de célula inválido"):
         batch_write(fake_sheets, (SheetUpdate("Importações!A2", ((object(),),)),))
     assert fake_sheets.value_writes == []
 
@@ -485,27 +486,27 @@ def test_batch_write_uses_raw_and_google_serial_dates_without_formula_interpreta
 def test_batch_write_rejects_non_transportable_decimals_before_any_write(fake_sheets, value):
     from automation.sheets import batch_write
 
-    fake_sheets._sheets = [_grid_sheet()]
-    with pytest.raises(SheetSchemaError):
+    _set_sheet_contract(fake_sheets, "Importações", IMPORT_HEADERS)
+    with pytest.raises(SheetSchemaError, match="número inválido"):
         batch_write(fake_sheets, (SheetUpdate("'Importações'!A2", ((value,),)),))
     assert fake_sheets.value_writes == []
 
 
 @pytest.mark.parametrize(
-    "update",
+    "update, message",
     (
-        SheetUpdate("Produtos!A2", (("x",),)),
-        SheetUpdate("'Importações'!AG2", (("x",),)),
-        SheetUpdate("'Importações'!A0", (("x",),)),
-        SheetUpdate("'Importações'!A2:B2", (("x",),)),
-        SheetUpdate("'Importações'!A2:A3", (("x", "y"),)),
+        (SheetUpdate("Produtos!A2", (("x",),)), "aba não autorizada"),
+        (SheetUpdate("'Importações'!AG2", (("x",),)), "fora do contrato"),
+        (SheetUpdate("'Importações'!A0", (("x",),)), "intervalo de atualização é inválido"),
+        (SheetUpdate("'Importações'!A2:B2", (("x",),)), "dimensões"),
+        (SheetUpdate("'Importações'!A2:A3", (("x", "y"),)), "dimensões"),
     ),
 )
-def test_batch_write_rejects_unauthorized_or_dimension_mismatched_ranges_before_any_write(fake_sheets, update):
+def test_batch_write_rejects_unauthorized_or_dimension_mismatched_ranges_before_any_write(fake_sheets, update, message):
     from automation.sheets import batch_write
 
-    fake_sheets._sheets = [_grid_sheet()]
-    with pytest.raises(SheetSchemaError):
+    _set_sheet_contract(fake_sheets, "Importações", IMPORT_HEADERS)
+    with pytest.raises(SheetSchemaError, match=message):
         batch_write(fake_sheets, (update,), worksheet="Importações")
     assert fake_sheets.value_writes == []
 
@@ -648,8 +649,8 @@ def test_batch_write_rejects_a_ragged_later_update_before_the_single_transport_c
     """Catches partial writes when a later range has non-rectangular values."""
     from automation.sheets import batch_write
 
-    fake_sheets._sheets = [_grid_sheet()]
-    with pytest.raises(SheetSchemaError):
+    _set_sheet_contract(fake_sheets, "Importações", IMPORT_HEADERS)
+    with pytest.raises(SheetSchemaError, match="dimensões"):
         batch_write(
             fake_sheets,
             (
@@ -658,6 +659,7 @@ def test_batch_write_rejects_a_ragged_later_update_before_the_single_transport_c
             ),
         )
     assert fake_sheets.value_writes == []
+    assert fake_sheets.values("'Importações'!A2:A2") == []
 
 
 def test_setup_rejects_duplicate_or_semantically_conflicting_shopee_filter_before_write(fake_sheets_with_imports):

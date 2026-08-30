@@ -93,3 +93,24 @@ nenhuma credencial, rede real ou escrita externa foi usada.
   testes de exaustão e de não-retry para 501, 505 e 4xx.
 - A configuração repõe o formato `textFormat.bold=True` em A1:AF1 com o mesmo
   `sheetId`; a fake mantém esse estado sem duplicá-lo na segunda execução.
+
+## Rodada corretiva 3/5 — testes de preflight reais
+
+### RED
+
+- Um probe com as quatro pré-condições antigas mostrou que objeto inválido,
+  Decimal não transportável, range não autorizado e update ragged terminavam
+  todos em `A aba de escrita não foi encontrada.`; portanto não cobriam os
+  ramos que seus nomes declaravam.
+
+### GREEN
+
+- Cada teste inicializa o contrato GRID/cabeçalho real antes da escrita e
+  verifica a mensagem do erro de conversão, autorização, sintaxe ou dimensão
+  pretendido; Decimal e valor inválido agora alcançam a conversão tipada.
+- O caso ragged verifica adicionalmente que não há `value_writes` e que o
+  primeiro intervalo válido não foi aplicado.
+- `.venv/bin/python -m pytest tests/test_sheets.py -q`: `64 passed`.
+- `.venv/bin/python -m pytest -q`: `362 passed`.
+- `.venv/bin/python -m compileall -q automation tests`: exit 0.
+- `git diff --check`: exit 0.
