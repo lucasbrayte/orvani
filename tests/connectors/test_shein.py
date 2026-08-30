@@ -139,12 +139,12 @@ def test_propagates_typed_fetch_errors(shein_connector):
     assert client.calls
 
 
-def test_registry_adds_shein_after_existing_connectors():
-    # Omitting SHEIN or reordering it changes deterministic registry construction.
+def test_registry_adds_shein_before_inert_tiktok():
+    # Omitting or reordering an implemented connector changes deterministic registry construction.
     from automation.connectors.base import build_connector_registry
 
     registry = build_connector_registry(ScriptedHttpClient(()))
 
     assert [connector.partner_key for connector in registry._connectors] == [
-        "mercado_livre", "shopee", "shein"
+        "mercado_livre", "shopee", "shein", "tiktok_shop"
     ]

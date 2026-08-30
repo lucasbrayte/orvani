@@ -327,14 +327,14 @@ def test_accepts_top_level_product_referencing_a_trusted_canonical_page():
     assert canonical != value.source_url
 
 
-def test_registry_contains_mercado_shopee_then_shein_when_tiktok_is_absent():
+def test_registry_contains_mercado_shopee_shein_then_inert_tiktok():
     # Omitting an implemented connector or reordering it changes deterministic registration.
     from automation.connectors.base import build_connector_registry
 
     registry = build_connector_registry(ScriptedHttpClient(()))
 
     assert [connector.partner_key for connector in registry._connectors] == [
-        "mercado_livre", "shopee", "shein"
+        "mercado_livre", "shopee", "shein", "tiktok_shop"
     ]
     assert registry.select("https://s.shopee.com.br/AbCd").partner_key == "shopee"
 
