@@ -212,13 +212,12 @@ def _main_products(
     found_webpage = False
     for webpage in (node for node in nodes if _has_type(node, "webpage") and "mainEntity" in node):
         found_webpage = True
-        if not _webpage_belongs_to_page(webpage, page_urls, allowed_hosts):
-            continue
+        webpage_is_trusted = _webpage_belongs_to_page(webpage, page_urls, allowed_hosts)
         values = webpage["mainEntity"]
         for candidate in values if isinstance(values, list) else (values,):
             product = _resolve_node(candidate, index)
             if product is not None and _has_type(product, "product"):
-                yield product, True
+                yield product, webpage_is_trusted
     if found_webpage:
         return
     for product in (node for node in nodes if _has_type(node, "product")):
@@ -246,7 +245,7 @@ def _webpage_belongs_to_page(
         for value in (webpage.get("@id"), webpage.get("url"))
         if (reference := _reference_url(value)) is not None
     )
-    return not references or all(
+    return bool(references) and all(
         _reference_matches_page(reference, page_urls, allowed_hosts) for reference in references
     )
 

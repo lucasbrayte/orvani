@@ -131,6 +131,22 @@ def test_html_metadata_rejects_required_fields_before_snapshot(changes):
         connector.fetch(url)
 
 
+@pytest.mark.parametrize("currency", ("ZZZ", "USD", "EUR", "", None, 42))
+def test_html_metadata_rejects_non_brl_currency(currency):
+    # A non-BRL HTML value cannot be published into this Brazilian catalog contract.
+    from automation.connectors.tiktok_shop import TikTokShopConnector
+
+    url = "https://shop.tiktok.test/product/123"
+    connector = TikTokShopConnector(
+        ScriptedHttpClient((_html(url, b"<html>fixture</html>"),)),
+        FIXTURE_PARTNER,
+        metadata_extractor=lambda _html, _source: _complete_metadata(currency=currency),
+    )
+
+    with pytest.raises(InvalidProductDataError):
+        connector.fetch(url)
+
+
 def test_optional_api_fake_can_supply_normalized_public_fields_after_safe_identity(html_fixture):
     # Passing API fields through before validating the page identity could mix an unrelated product.
     from automation.connectors.tiktok_shop import TikTokShopApiProduct, TikTokShopConnector
@@ -279,6 +295,28 @@ def test_optional_api_rejects_empty_or_invalid_required_fields(changes):
             }
             values.update(changes)
             return TikTokShopApiProduct(**values)
+
+    url = "https://shop.tiktok.test/product/123"
+    with pytest.raises(InvalidProductDataError):
+        TikTokShopConnector(
+            ScriptedHttpClient((_html(url, b"<html>sem produto</html>"),)), FIXTURE_PARTNER, api=FakeApi()
+        ).fetch(url)
+
+
+@pytest.mark.parametrize("currency", ("ZZZ", "USD", "EUR", "", None, 42))
+def test_optional_api_rejects_non_brl_currency(currency):
+    # The adapter cannot change the catalog's currency contract through a normalized payload.
+    from automation.connectors.tiktok_shop import TikTokShopApiProduct, TikTokShopConnector
+
+    class FakeApi:
+        def fetch_product(self, external_id):
+            assert external_id == "123"
+            return TikTokShopApiProduct(
+                name="Produto API", description="API fake", current_price=Decimal("39.90"),
+                previous_price=Decimal("59.90"), currency=currency,
+                images=("https://images.example.test/tiktok-api-valid.jpg",),
+                source_category="", available=True,
+            )
 
     url = "https://shop.tiktok.test/product/123"
     with pytest.raises(InvalidProductDataError):

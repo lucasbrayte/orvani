@@ -7,11 +7,10 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from importlib import import_module
-import re
 from typing import Protocol, runtime_checkable
 
 from ..categorizer import categorize
-from ..config import PARTNERS, PartnerConfig
+from ..config import CATALOG_CURRENCY, PARTNERS, PartnerConfig
 from ..http_client import SafeHttpClient
 from ..metadata import (
     ExtractedProductData,
@@ -31,7 +30,6 @@ from ..security import validate_https_url
 _HTML_CONTENT_TYPES = ("text/html", "application/xhtml+xml")
 _MetadataExtractor = Callable[[str, str], ExtractedProductData]
 _Clock = Callable[[], datetime]
-_CURRENCY = re.compile(r"[A-Z]{3}\Z")
 
 
 @runtime_checkable
@@ -100,7 +98,7 @@ def validate_required_metadata(metadata: object) -> ExtractedProductData:
         or not isinstance(current, Decimal)
         or not current.is_finite()
         or current <= 0
-        or not _CURRENCY.fullmatch(currency)
+        or currency != CATALOG_CURRENCY
     ):
         raise InvalidProductDataError("O produto não contém dados obrigatórios válidos.")
     images = unique_https_images(metadata.images) if isinstance(metadata.images, tuple) else ()

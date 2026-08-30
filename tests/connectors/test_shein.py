@@ -162,6 +162,45 @@ def test_rejects_local_webpage_that_designates_a_product_with_foreign_url():
         )
 
 
+def test_rejects_anonymous_webpage_with_anonymous_inline_product_identity():
+    # A SKU alone in anonymous JSON-LD cannot prove that a Product belongs to this terminal page.
+    from automation.connectors.shein import SheinConnector
+
+    source_url = "https://br.shein.com/brisa-leve.html"
+    html = b'''<script type="application/ld+json">{
+      "@type":"WebPage", "mainEntity": {
+        "@type":"Product", "sku":"987", "name":"Produto anonimo",
+        "image":"https://images.example.test/anonymous.jpg",
+        "offers":{"@type":"Offer","price":"79.90","priceCurrency":"BRL"}
+      }
+    }</script>'''
+
+    with pytest.raises(InvalidProductDataError):
+        SheinConnector(ScriptedHttpClient((_html(source_url, html),)), PARTNERS["shein"]).fetch(
+            source_url
+        )
+
+
+def test_accepts_anonymous_webpage_when_inline_product_has_its_own_local_url():
+    # Product-owned page evidence is sufficient even when the wrapper WebPage is anonymous.
+    from automation.connectors.shein import SheinConnector
+
+    source_url = "https://br.shein.com/brisa-leve.html"
+    html = b'''<script type="application/ld+json">{
+      "@type":"WebPage", "mainEntity": {
+        "@type":"Product", "url":"https://br.shein.com/brisa-leve.html", "sku":"987",
+        "name":"Produto associado", "image":"https://images.example.test/associated.jpg",
+        "offers":{"@type":"Offer","price":"79.90","priceCurrency":"BRL"}
+      }
+    }</script>'''
+
+    value = SheinConnector(ScriptedHttpClient((_html(source_url, html),)), PARTNERS["shein"]).fetch(
+        source_url
+    )
+
+    assert value.external_id == "987"
+
+
 def test_accepts_local_main_entity_reference_to_related_product():
     # Resolving an in-document fragment must retain the Product's matching source-page relation.
     from automation.connectors.shein import SheinConnector
@@ -172,6 +211,27 @@ def test_accepts_local_main_entity_reference_to_related_product():
         {"@type":["WebPage"], "url":"https://br.shein.com/brisa-leve.html", "mainEntity":{"@id":"#product"}},
         {"@id":"#product", "@type":["Product"], "mainEntityOfPage":"https://br.shein.com/brisa-leve.html",
          "sku":"123", "name":"Produto local", "image":"https://images.example.test/local.jpg",
+         "offers":{"@type":"Offer","price":"79.90","priceCurrency":"BRL"}}
+      ]
+    }</script>'''
+
+    value = SheinConnector(ScriptedHttpClient((_html(source_url, html),)), PARTNERS["shein"]).fetch(
+        source_url
+    )
+
+    assert value.external_id == "123"
+
+
+def test_accepts_local_webpage_and_product_urls_in_the_same_document():
+    # Absolute page URLs on both entities are sufficient same-document evidence for the SKU.
+    from automation.connectors.shein import SheinConnector
+
+    source_url = "https://br.shein.com/brisa-leve.html"
+    html = b'''<script type="application/ld+json">{
+      "@graph": [
+        {"@type":"WebPage", "url":"https://br.shein.com/brisa-leve.html", "mainEntity":{"@id":"#product"}},
+        {"@id":"#product", "@type":"Product", "url":"https://br.shein.com/brisa-leve.html",
+         "sku":"123", "name":"Produto local", "image":"https://images.example.test/local-url.jpg",
          "offers":{"@type":"Offer","price":"79.90","priceCurrency":"BRL"}}
       ]
     }</script>'''
@@ -224,6 +284,22 @@ def test_rejects_incomplete_or_invalid_metadata_before_snapshot(changes):
         ScriptedHttpClient((_html(url, b"<html>fixture</html>"),)),
         PARTNERS["shein"],
         metadata_extractor=lambda _html, _source: _complete_metadata(**changes),
+    )
+
+    with pytest.raises(InvalidProductDataError):
+        connector.fetch(url)
+
+
+@pytest.mark.parametrize("currency", ("ZZZ", "USD", "EUR", "", None, 42))
+def test_rejects_non_brl_currency_from_html_metadata(currency):
+    # Accepting another currency would publish a Brazilian catalog price with the wrong unit.
+    from automation.connectors.shein import SheinConnector
+
+    url = "https://br.shein.com/product-p-123.html"
+    connector = SheinConnector(
+        ScriptedHttpClient((_html(url, b"<html>fixture</html>"),)),
+        PARTNERS["shein"],
+        metadata_extractor=lambda _html, _source: _complete_metadata(currency=currency),
     )
 
     with pytest.raises(InvalidProductDataError):
