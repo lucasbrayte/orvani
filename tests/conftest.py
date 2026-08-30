@@ -2,11 +2,94 @@ from datetime import UTC, datetime
 from decimal import Decimal
 import socket
 from collections import Counter
+from copy import deepcopy
 
 import httpx
 import pytest
 
 from automation.http_client import SafeHttpClient
+
+
+class FakeSheetsGateway:
+    """Fake observável do limite de transporte do Google Sheets."""
+
+    def __init__(self, sheets=(), values=None):
+        self._sheets = deepcopy(list(sheets))
+        self._values = deepcopy(values or {})
+        self.spreadsheet_reads = 0
+        self.value_reads = []
+        self.spreadsheet_writes = []
+        self.value_writes = []
+
+    def get_spreadsheet(self):
+        self.spreadsheet_reads += 1
+        return {"sheets": deepcopy(self._sheets)}
+
+    def get_values(self, range_name):
+        self.value_reads.append(range_name)
+        return {"values": deepcopy(self._values.get(range_name, []))}
+
+    def values(self, range_name):
+        return deepcopy(self._values.get(range_name, []))
+
+    def batch_update(self, requests):
+        copied = deepcopy(list(requests))
+        self.spreadsheet_writes.append(copied)
+        for request in copied:
+            if "addSheet" in request:
+                properties = request["addSheet"]["properties"]
+                self._sheets.append({"properties": deepcopy(properties)})
+            elif "updateCells" in request:
+                update = request["updateCells"]
+                sheet_id = update["range"]["sheetId"]
+                title = self._title_for(sheet_id)
+                header = [
+                    cell["userEnteredValue"].get("stringValue", "")
+                    for cell in update["rows"][0]["values"]
+                ]
+                self._values[f"{title}!A1:AF1"] = [header]
+                self._values[f"{title}!A1:AF"] = [header]
+            elif "addFilterView" in request:
+                view = request["addFilterView"]["filter"]
+                self._sheet_for(view["range"]["sheetId"]).setdefault("filterViews", []).append(view)
+            elif "addConditionalFormatRule" in request:
+                rule = request["addConditionalFormatRule"]["rule"]
+                self._sheet_for(rule["ranges"][0]["sheetId"]).setdefault(
+                    "conditionalFormats", []
+                ).append(rule)
+
+    def batch_values_update(self, data, value_input_option):
+        copied = deepcopy(list(data))
+        self.value_writes.append({"data": copied, "valueInputOption": value_input_option})
+        for item in copied:
+            self._values[item["range"]] = deepcopy(item["values"])
+
+    def _sheet_for(self, sheet_id):
+        for sheet in self._sheets:
+            if sheet.get("properties", {}).get("sheetId") == sheet_id:
+                return sheet
+        raise AssertionError(f"unknown fake sheet id: {sheet_id}")
+
+    def _title_for(self, sheet_id):
+        return self._sheet_for(sheet_id)["properties"]["title"]
+
+
+@pytest.fixture
+def fake_sheets():
+    return FakeSheetsGateway()
+
+
+@pytest.fixture
+def fake_sheets_with_imports():
+    from automation.config import IMPORT_HEADERS
+
+    return FakeSheetsGateway(
+        sheets=({"properties": {"sheetId": 17, "title": "Importações"}},),
+        values={
+            "Importações!A1:AF1": [list(IMPORT_HEADERS)],
+            "Importações!A1:AF": [list(IMPORT_HEADERS), ["saved-id", "Sim", "Não"]],
+        },
+    )
 
 
 def _public_dns_resolver(*_args):
