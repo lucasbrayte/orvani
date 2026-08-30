@@ -1,41 +1,40 @@
-"""Gateway em lote e configuração idempotente da aba Importações."""
+"""Gateway seguro e idempotente para o contrato Google Sheets da Orvani."""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from math import isfinite
+import re
+import time
 from typing import Any, Protocol, runtime_checkable
 from uuid import uuid4
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
-from .config import IMPORT_HEADERS, Settings
+from .config import IMPORT_HEADERS, PRODUCTS_HEADERS, Settings
 from .models import ConfigurationError, ImportStatus, SheetSchemaError, SheetUpdate, UpdateMode
-
 
 _SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
 _STATUS_COLUMN = 25
-_SHEET_COLUMN_COUNT = len(IMPORT_HEADERS)
+_MAX_SHEET_ID = 2_147_483_647
+_MAX_RETRIES = 2
+_MAX_DELAY_SECONDS = 60.0
+_GRID_ROWS = 1_000
+_GRID_COLUMNS = len(IMPORT_HEADERS)
 _SHOPEE_VIEW_TITLE = "Shopee — aguardando conversão"
+_A1 = re.compile(r"(?:(?:'((?:''|[^'])+)')|([^'!]+))!([A-Z]+)([1-9][0-9]*)(?::([A-Z]+)([1-9][0-9]*))?$")
 
 
 @runtime_checkable
 class SheetsGateway(Protocol):
-    """Pequeno limite transportável, compartilhado por produção e fakes."""
-
     def get_spreadsheet(self) -> Mapping[str, Any]: ...
-
     def get_values(self, range_name: str) -> Mapping[str, Any]: ...
-
     def batch_update(self, requests: Sequence[Mapping[str, Any]]) -> None: ...
-
-    def batch_values_update(
-        self, data: Sequence[Mapping[str, Any]], value_input_option: str
-    ) -> None: ...
+    def batch_values_update(self, data: Sequence[Mapping[str, Any]], value_input_option: str) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,70 +44,46 @@ class ImportSheetSetup:
 
 
 class GoogleSheetsGateway:
-    """Adaptador da API Google com retry apenas para indisponibilidade transitória."""
-
-    def __init__(
-        self,
-        service: Any,
-        spreadsheet_id: str,
-        *,
-        sleep: Callable[[float], None] | None = None,
-        retry_delays: Sequence[float] = (0.5, 1.0),
-    ) -> None:
+    def __init__(self, service: Any, spreadsheet_id: str, *, sleep: Callable[[float], None] = time.sleep, retry_delays: Sequence[float] = (0.5, 1.0)) -> None:
         self._service = service
         self.spreadsheet_id = spreadsheet_id
-        self._sleep = sleep or (lambda _seconds: None)
-        self._retry_delays = tuple(retry_delays)
+        self._sleep = sleep
+        self._retry_delays = _validated_delays(retry_delays)
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "GoogleSheetsGateway":
         try:
-            credentials = service_account.Credentials.from_service_account_info(
-                settings.service_account_info,
-                scopes=[_SHEETS_SCOPE],
-            )
+            credentials = service_account.Credentials.from_service_account_info(settings.service_account_info, scopes=[_SHEETS_SCOPE])
             service = build("sheets", "v4", credentials=credentials, cache_discovery=False)
-        except Exception as error:
-            raise ConfigurationError("Não foi possível configurar o acesso ao Google Sheets.") from error
+        except Exception:
+            service = None
+        if service is None:
+            raise ConfigurationError("Não foi possível configurar o acesso ao Google Sheets.")
         return cls(service, settings.spreadsheet_id)
 
     def get_spreadsheet(self) -> Mapping[str, Any]:
-        return self._execute(
-            lambda: self._service.spreadsheets()
-            .get(spreadsheetId=self.spreadsheet_id)
-            .execute()
-        )
+        return self._execute(lambda: self._service.spreadsheets().get(spreadsheetId=self.spreadsheet_id).execute())
 
     def get_values(self, range_name: str) -> Mapping[str, Any]:
-        return self._execute(
-            lambda: self._service.spreadsheets()
-            .values()
-            .get(spreadsheetId=self.spreadsheet_id, range=range_name)
-            .execute()
-        )
+        return self._execute(lambda: self._service.spreadsheets().values().get(
+            spreadsheetId=self.spreadsheet_id, range=range_name,
+            valueRenderOption="UNFORMATTED_VALUE", dateTimeRenderOption="SERIAL_NUMBER",
+        ).execute())
 
     def batch_update(self, requests: Sequence[Mapping[str, Any]]) -> None:
-        self._execute(
-            lambda: self._service.spreadsheets()
-            .batchUpdate(spreadsheetId=self.spreadsheet_id, body={"requests": list(requests)})
-            .execute()
-        )
+        self._execute(lambda: self._service.spreadsheets().batchUpdate(
+            spreadsheetId=self.spreadsheet_id, body={"requests": list(requests)}).execute())
 
-    def batch_values_update(
-        self, data: Sequence[Mapping[str, Any]], value_input_option: str
-    ) -> None:
-        self._execute(
-            lambda: self._service.spreadsheets()
-            .values()
-            .batchUpdate(
-                spreadsheetId=self.spreadsheet_id,
-                body={"valueInputOption": value_input_option, "data": list(data)},
-            )
-            .execute()
-        )
+    def batch_values_update(self, data: Sequence[Mapping[str, Any]], value_input_option: str) -> None:
+        self._execute(lambda: self._service.spreadsheets().values().batchUpdate(
+            spreadsheetId=self.spreadsheet_id,
+            body={"valueInputOption": value_input_option, "data": list(data)},
+        ).execute())
 
     def _execute(self, operation: Callable[[], Mapping[str, Any]]) -> Mapping[str, Any]:
-        for attempt, delay in enumerate((*self._retry_delays, None)):
+        for attempt in range(len(self._retry_delays) + 1):
+            retry = False
+            status: int | None = None
             try:
                 response = operation()
                 if not isinstance(response, Mapping):
@@ -118,288 +93,254 @@ class GoogleSheetsGateway:
                 raise
             except Exception as error:
                 status = _http_status(error)
-                if status in (429,) or status is not None and 500 <= status <= 599:
-                    if delay is not None:
-                        self._sleep(delay)
-                        continue
-                    raise ConfigurationError("Google Sheets está temporariamente indisponível.") from error
-                if status == 400:
-                    raise SheetSchemaError("A requisição para Google Sheets é inválida.") from error
-                if status in (401, 403):
-                    raise ConfigurationError("A conta de serviço não tem acesso à planilha.") from error
-                if status == 404:
-                    raise SheetSchemaError("A planilha ou intervalo não foi encontrado.") from error
-                raise ConfigurationError("Falha ao comunicar com Google Sheets.") from error
-        raise AssertionError("retry loop exhausted")
+                retry = status in {429, 500, 502, 503, 504}
+            if retry and attempt < len(self._retry_delays):
+                self._sleep(self._retry_delays[attempt])
+                continue
+            raise _api_error(status)
+        raise AssertionError("unreachable retry loop")
 
 
-def validate_headers(headers: Sequence[Any]) -> None:
-    """Recusa qualquer esquema diferente dos 32 cabeçalhos aprovados."""
-    if tuple(headers) != IMPORT_HEADERS:
-        raise SheetSchemaError("Os cabeçalhos da aba Importações não correspondem ao contrato aprovado.")
+def validate_headers(headers: Sequence[Any], *, expected: Sequence[str] = IMPORT_HEADERS) -> None:
+    if tuple(headers) != tuple(expected):
+        raise SheetSchemaError("Os cabeçalhos da aba não correspondem ao contrato aprovado.")
 
 
 def plan_import_sheet_setup(gateway: SheetsGateway, worksheet: str) -> ImportSheetSetup:
-    """Lê metadados e constrói, sem gravar, uma única configuração estrutural."""
-    _range(worksheet, "A1:AF1")
-    metadata = gateway.get_spreadsheet()
-    inventory = _sheet_inventory(metadata)
-    if worksheet in inventory:
-        sheet = inventory[worksheet]
-        header_response = gateway.get_values(_range(worksheet, "A1:AF1"))
-        values = header_response.get("values", [])
-        if not isinstance(values, list) or not values:
+    _validate_title(worksheet)
+    inventory = _sheet_inventory(gateway.get_spreadsheet())
+    existing = inventory.get(worksheet)
+    if existing is not None:
+        grid = existing["properties"]["gridProperties"]
+        if grid["rowCount"] < 2 or grid["columnCount"] < len(IMPORT_HEADERS):
+            raise SheetSchemaError("A grade existente não comporta o contrato Importações.")
+        values = gateway.get_values(_a1_range(worksheet, "A1:AF1")).get("values", [])
+        if not isinstance(values, list) or not values or not isinstance(values[0], list):
             raise SheetSchemaError("A aba Importações não possui a linha de cabeçalho exigida.")
-        header = values[0]
-        if not isinstance(header, list):
-            raise SheetSchemaError("A linha de cabeçalho da aba Importações é inválida.")
-        validate_headers(header)
-        return ImportSheetSetup(False, tuple(_formatting_requests(sheet)))
-
+        validate_headers(values[0])
+        return ImportSheetSetup(False, tuple(_formatting_requests(existing)))
     sheet_id = _next_unused_positive_sheet_id(inventory.values())
-    created_sheet = {"properties": {"sheetId": sheet_id, "title": worksheet}}
-    requests: list[Mapping[str, Any]] = [{"addSheet": created_sheet}]
-    requests.append(_headers_request(sheet_id))
-    requests.extend(_formatting_requests({"properties": created_sheet["properties"]}))
+    properties = {"sheetId": sheet_id, "title": worksheet, "sheetType": "GRID", "gridProperties": {"rowCount": _GRID_ROWS, "columnCount": _GRID_COLUMNS}}
+    requests: list[Mapping[str, Any]] = [{"addSheet": {"properties": properties}}, _headers_request(sheet_id)]
+    requests.extend(_formatting_requests({"properties": properties}))
     return ImportSheetSetup(True, tuple(requests))
 
 
-def setup_import_sheet(
-    gateway: SheetsGateway, worksheet: str, *, dry_run: bool = False
-) -> ImportSheetSetup:
-    """Aplica a configuração planejada, sem alterar linhas de dados existentes."""
+def setup_import_sheet(gateway: SheetsGateway, worksheet: str, *, dry_run: bool = False) -> ImportSheetSetup:
     plan = plan_import_sheet_setup(gateway, worksheet)
     if plan.requests and not dry_run:
         gateway.batch_update(plan.requests)
     return plan
 
 
-def read_table(gateway: SheetsGateway, worksheet: str) -> tuple[tuple[Any, ...], ...]:
-    """Lê somente as 32 colunas aprovadas, preservando tipos e linhas internas."""
-    response = gateway.get_values(_range(worksheet, "A1:AF"))
-    values = response.get("values", [])
+def read_table(gateway: SheetsGateway, worksheet: str, *, headers: Sequence[str] = IMPORT_HEADERS) -> tuple[tuple[Any, ...], ...]:
+    _validate_title(worksheet)
+    expected = _approved_header_contract(headers)
+    values = gateway.get_values(_a1_range(worksheet, f"A1:{_column_label(len(expected) - 1)}")).get("values", [])
     if not isinstance(values, list) or not values or not isinstance(values[0], list):
-        raise SheetSchemaError("A aba Importações não possui dados legíveis.")
-    validate_headers(values[0])
-    rows: list[tuple[Any, ...]] = []
+        raise SheetSchemaError("A aba não possui dados legíveis.")
+    validate_headers(values[0], expected=expected)
+    output: list[tuple[Any, ...]] = []
     for row in values[1:]:
-        if not isinstance(row, list) or len(row) > _SHEET_COLUMN_COUNT:
-            raise SheetSchemaError("A aba Importações contém uma linha inválida.")
-        rows.append(tuple(row))
-    return tuple(rows)
+        if not isinstance(row, list) or len(row) > len(expected):
+            raise SheetSchemaError("A aba contém uma linha inválida.")
+        output.append(tuple(row))
+    return tuple(output)
 
 
 def batch_write(
     gateway: SheetsGateway,
     updates: Sequence[SheetUpdate],
     *,
-    value_input_option: str = "USER_ENTERED",
+    worksheet: str = "Importações",
+    headers: Sequence[str] = IMPORT_HEADERS,
+    value_input_option: str = "RAW",
 ) -> None:
-    """Valida e envia todos os intervalos em uma única values.batchUpdate."""
-    if value_input_option not in {"USER_ENTERED", "RAW"}:
+    _validate_title(worksheet)
+    if value_input_option != "RAW":
         raise SheetSchemaError("O modo de escrita da planilha é inválido.")
-    data = [_transport_update(update) for update in updates]
+    expected = _approved_header_contract(headers)
+    data = [_transport_update(update, worksheet, len(expected)) for update in updates]
     if data:
         gateway.batch_values_update(data, value_input_option)
 
 
-def plan_new_import_row(
-    worksheet: str,
-    row_number: int,
-    *,
-    uuid_factory: Callable[[], Any] = uuid4,
-) -> SheetUpdate:
-    """Planeja uma linha nova inteira; não é usado para alterar linhas existentes."""
+def plan_new_import_row(worksheet: str, row_number: int, *, current_values: Sequence[Any] = (), uuid_factory: Callable[[], Any] = uuid4) -> SheetUpdate | None:
+    _validate_title(worksheet)
     if not isinstance(row_number, int) or isinstance(row_number, bool) or row_number < 2:
         raise SheetSchemaError("A nova linha de Importações é inválida.")
-    automation_id = str(uuid_factory())
-    values: list[Any] = [""] * _SHEET_COLUMN_COUNT
-    values[0] = automation_id
-    values[2] = "Não"
-    values[3] = "Não"
-    values[5] = UpdateMode.AUTOMATICO.value
-    values[_STATUS_COLUMN] = ImportStatus.NOVO.value
-    values[27] = 0
-    return SheetUpdate(_range(worksheet, f"A{row_number}:AF{row_number}"), (tuple(values),))
+    if not isinstance(current_values, Sequence) or isinstance(current_values, (str, bytes)) or len(current_values) > len(IMPORT_HEADERS):
+        raise SheetSchemaError("A linha de Importações é inválida.")
+    values = list(current_values) + [""] * (len(IMPORT_HEADERS) - len(current_values))
+    changed = False
+    if values[0] in (None, ""):
+        generated = str(uuid_factory())
+        if not _is_uuid4(generated):
+            raise SheetSchemaError("O ID Automação gerado é inválido.")
+        values[0], changed = generated, True
+    for index, default in ((2, "Não"), (3, "Não"), (5, UpdateMode.AUTOMATICO.value), (_STATUS_COLUMN, ImportStatus.NOVO.value), (27, 0)):
+        if values[index] in (None, ""):
+            values[index], changed = default, True
+    if not changed:
+        return None
+    return SheetUpdate(_a1_range(worksheet, f"A{row_number}:AF{row_number}"), (tuple(values),))
+
+
+def _validated_delays(delays: Sequence[float]) -> tuple[float, ...]:
+    if not isinstance(delays, Sequence) or isinstance(delays, (str, bytes)) or len(delays) > _MAX_RETRIES:
+        raise ConfigurationError("A configuração de retry é inválida.")
+    output: list[float] = []
+    for delay in delays:
+        if isinstance(delay, bool) or not isinstance(delay, (int, float)) or not isfinite(delay) or not 0 <= delay <= _MAX_DELAY_SECONDS:
+            raise ConfigurationError("A configuração de retry é inválida.")
+        output.append(float(delay))
+    return tuple(output)
 
 
 def _sheet_inventory(metadata: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
     sheets = metadata.get("sheets", [])
     if not isinstance(sheets, list):
         raise SheetSchemaError("Os metadados da planilha são inválidos.")
-    by_title: dict[str, Mapping[str, Any]] = {}
-    used_ids: set[int] = set()
+    output: dict[str, Mapping[str, Any]] = {}
+    ids: set[int] = set()
     for sheet in sheets:
-        if not isinstance(sheet, Mapping):
+        if not isinstance(sheet, Mapping) or not isinstance(sheet.get("properties"), Mapping):
             raise SheetSchemaError("Os metadados da planilha são inválidos.")
-        properties = sheet.get("properties")
-        if not isinstance(properties, Mapping):
-            raise SheetSchemaError("Os metadados da planilha são inválidos.")
-        sheet_id, title = properties.get("sheetId"), properties.get("title")
-        if (
-            not isinstance(sheet_id, int)
-            or isinstance(sheet_id, bool)
-            or sheet_id < 0
-            or not isinstance(title, str)
-            or not title
-            or sheet_id in used_ids
-            or title in by_title
-        ):
+        properties = sheet["properties"]
+        sheet_id, title, grid = properties.get("sheetId"), properties.get("title"), properties.get("gridProperties")
+        if (isinstance(sheet_id, bool) or not isinstance(sheet_id, int) or not 0 <= sheet_id <= _MAX_SHEET_ID or not _title_is_valid(title) or properties.get("sheetType") != "GRID" or not _grid_is_valid(grid) or sheet_id in ids or title in output):
             raise SheetSchemaError("Os metadados da planilha são inconsistentes.")
-        used_ids.add(sheet_id)
-        by_title[title] = sheet
-    return by_title
+        ids.add(sheet_id)
+        output[title] = sheet
+    return output
+
+
+def _grid_is_valid(grid: Any) -> bool:
+    return isinstance(grid, Mapping) and all(
+        isinstance(grid.get(key), int)
+        and not isinstance(grid.get(key), bool)
+        and 0 < grid[key] <= _MAX_SHEET_ID
+        for key in ("rowCount", "columnCount")
+    )
 
 
 def _next_unused_positive_sheet_id(sheets: Sequence[Mapping[str, Any]]) -> int:
-    used_ids = {sheet["properties"]["sheetId"] for sheet in sheets}
+    used = {sheet["properties"]["sheetId"] for sheet in sheets}
     candidate = 1
-    while candidate in used_ids:
+    while candidate in used:
         candidate += 1
+    if candidate > _MAX_SHEET_ID:
+        raise SheetSchemaError("Não há um sheetId seguro disponível.")
     return candidate
 
 
 def _headers_request(sheet_id: int) -> Mapping[str, Any]:
-    return {
-        "updateCells": {
-            "range": {"sheetId": sheet_id, "startRowIndex": 0, "startColumnIndex": 0},
-            "rows": [{"values": [{"userEnteredValue": {"stringValue": header}} for header in IMPORT_HEADERS]}],
-            "fields": "userEnteredValue",
-        }
-    }
+    return {"updateCells": {"range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": 1, "startColumnIndex": 0, "endColumnIndex": len(IMPORT_HEADERS)}, "rows": [{"values": [{"userEnteredValue": {"stringValue": item}} for item in IMPORT_HEADERS]}], "fields": "userEnteredValue"}}
 
 
 def _formatting_requests(sheet: Mapping[str, Any]) -> list[Mapping[str, Any]]:
-    sheet_id = sheet["properties"]["sheetId"]
-    full_range = {"sheetId": sheet_id, "startRowIndex": 0, "endColumnIndex": _SHEET_COLUMN_COUNT}
-    requests: list[Mapping[str, Any]] = [
-        {
-            "updateSheetProperties": {
-                "properties": {"sheetId": sheet_id, "gridProperties": {"frozenRowCount": 1}},
-                "fields": "gridProperties.frozenRowCount",
-            }
-        },
-        {"setBasicFilter": {"filter": {"range": full_range}}},
-    ]
-    for column, allowed in (
-        (1, ("Sim", "Não")),
-        (2, ("Sim", "Não")),
-        (3, ("Sim", "Não")),
-        (5, tuple(item.value for item in UpdateMode)),
-        (_STATUS_COLUMN, tuple(item.value for item in ImportStatus)),
-    ):
-        requests.append(_validation_request(sheet_id, column, allowed))
-    requests.extend(
-        (
-            _format_request(sheet_id, 15, 17, "NUMBER", 'R$ #,##0.00'),
-            _format_request(sheet_id, 19, 20, "DATE", "dd/MM/yyyy"),
-            _format_request(sheet_id, 30, 32, "DATE", "dd/MM/yyyy"),
-            {
-                "repeatCell": {
-                    "range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": 1, "endColumnIndex": _SHEET_COLUMN_COUNT},
-                    "cell": {"userEnteredFormat": {"textFormat": {"bold": True}}},
-                    "fields": "userEnteredFormat.textFormat.bold",
-                }
-            },
-        )
-    )
+    properties = sheet["properties"]
+    sheet_id, rows = properties["sheetId"], properties["gridProperties"]["rowCount"]
+    full = {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": rows, "startColumnIndex": 0, "endColumnIndex": len(IMPORT_HEADERS)}
+    requests: list[Mapping[str, Any]] = [{"updateSheetProperties": {"properties": {"sheetId": sheet_id, "gridProperties": {"frozenRowCount": 1}}, "fields": "gridProperties.frozenRowCount"}}, {"setBasicFilter": {"filter": {"range": full}}}]
+    for column, allowed in ((1, ("Sim", "Não")), (2, ("Sim", "Não")), (3, ("Sim", "Não")), (5, tuple(item.value for item in UpdateMode)), (_STATUS_COLUMN, tuple(item.value for item in ImportStatus))):
+        requests.append(_validation_request(sheet_id, rows, column, allowed))
+    requests.extend((_format_request(sheet_id, rows, 15, 17, "NUMBER", 'R$ #,##0.00'), _format_request(sheet_id, rows, 19, 20, "DATE", "dd/MM/yyyy"), _format_request(sheet_id, rows, 30, 32, "DATE", "dd/MM/yyyy")))
     for status, color in ((ImportStatus.ERRO.value, {"red": 1.0, "green": 0.8, "blue": 0.8}), (ImportStatus.ATENCAO.value, {"red": 1.0, "green": 0.95, "blue": 0.75})):
-        if not _has_conditional_status_rule(sheet, status):
-            requests.append(_conditional_status_request(sheet_id, status, color))
-    if not _has_shopee_filter_view(sheet):
-        requests.append(_shopee_filter_view_request(sheet_id))
+        state = _conditional_rule_state(sheet, sheet_id, rows, status, color)
+        if state == "conflict":
+            raise SheetSchemaError("A formatação condicional de status é conflitante.")
+        if state == "missing":
+            requests.append(_conditional_status_request(sheet_id, rows, status, color))
+    state = _filter_view_state(sheet, sheet_id, rows)
+    if state == "conflict":
+        raise SheetSchemaError("A view Shopee existente é conflitante.")
+    if state == "missing":
+        requests.append(_shopee_filter_view_request(sheet_id, rows))
     return requests
 
 
-def _validation_request(sheet_id: int, column: int, allowed: Sequence[str]) -> Mapping[str, Any]:
-    return {
-        "setDataValidation": {
-            "range": {"sheetId": sheet_id, "startRowIndex": 1, "startColumnIndex": column, "endColumnIndex": column + 1},
-            "rule": {
-                "condition": {"type": "ONE_OF_LIST", "values": [{"userEnteredValue": value} for value in allowed]},
-                "strict": True,
-                "showCustomUi": True,
-            },
-        }
-    }
+def _validation_request(sheet_id: int, rows: int, column: int, allowed: Sequence[str]) -> Mapping[str, Any]:
+    return {"setDataValidation": {"range": {"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": rows, "startColumnIndex": column, "endColumnIndex": column + 1}, "rule": {"condition": {"type": "ONE_OF_LIST", "values": [{"userEnteredValue": value} for value in allowed]}, "strict": True, "showCustomUi": True}}}
 
 
-def _format_request(sheet_id: int, start_column: int, end_column: int, kind: str, pattern: str) -> Mapping[str, Any]:
-    return {
-        "repeatCell": {
-            "range": {"sheetId": sheet_id, "startRowIndex": 1, "startColumnIndex": start_column, "endColumnIndex": end_column},
-            "cell": {"userEnteredFormat": {"numberFormat": {"type": kind, "pattern": pattern}}},
-            "fields": "userEnteredFormat.numberFormat",
-        }
-    }
+def _format_request(sheet_id: int, rows: int, start: int, end: int, kind: str, pattern: str) -> Mapping[str, Any]:
+    return {"repeatCell": {"range": {"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": rows, "startColumnIndex": start, "endColumnIndex": end}, "cell": {"userEnteredFormat": {"numberFormat": {"type": kind, "pattern": pattern}}}, "fields": "userEnteredFormat.numberFormat"}}
 
 
-def _conditional_status_request(sheet_id: int, status: str, color: Mapping[str, float]) -> Mapping[str, Any]:
-    return {
-        "addConditionalFormatRule": {
-            "rule": {
-                "ranges": [{"sheetId": sheet_id, "startRowIndex": 1, "startColumnIndex": _STATUS_COLUMN, "endColumnIndex": _STATUS_COLUMN + 1}],
-                "booleanRule": {
-                    "condition": {"type": "TEXT_EQ", "values": [{"userEnteredValue": status}]},
-                    "format": {"backgroundColor": dict(color)},
-                },
-            },
-            "index": 0,
-        }
-    }
+def _conditional_status_request(sheet_id: int, rows: int, status: str, color: Mapping[str, float]) -> Mapping[str, Any]:
+    return {"addConditionalFormatRule": {"rule": {"ranges": [{"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": rows, "startColumnIndex": _STATUS_COLUMN, "endColumnIndex": _STATUS_COLUMN + 1}], "booleanRule": {"condition": {"type": "TEXT_EQ", "values": [{"userEnteredValue": status}]}, "format": {"backgroundColor": dict(color)}}}, "index": 0}}
 
 
-def _shopee_filter_view_request(sheet_id: int) -> Mapping[str, Any]:
-    return {
-        "addFilterView": {
-            "filter": {
-                "title": _SHOPEE_VIEW_TITLE,
-                "range": {"sheetId": sheet_id, "startRowIndex": 0, "endColumnIndex": _SHEET_COLUMN_COUNT},
-                "criteria": {
-                    str(_STATUS_COLUMN): {
-                        "condition": {
-                            "type": "TEXT_EQ",
-                            "values": [{"userEnteredValue": ImportStatus.AGUARDANDO_CONVERSAO.value}],
-                        }
-                    }
-                },
-            }
-        }
-    }
+def _conditional_rule_state(sheet: Mapping[str, Any], sheet_id: int, rows: int, status: str, color: Mapping[str, float]) -> str:
+    expected = _conditional_status_request(sheet_id, rows, status, color)["addConditionalFormatRule"]["rule"]
+    matches = [
+        rule
+        for rule in _semantic_entries(sheet, "conditionalFormats")
+        if isinstance(rule.get("booleanRule"), Mapping)
+        and rule["booleanRule"].get("condition") == expected["booleanRule"]["condition"]
+    ]
+    if not matches:
+        return "missing"
+    return "exact" if len(matches) == 1 and matches[0] == expected else "conflict"
 
 
-def _has_shopee_filter_view(sheet: Mapping[str, Any]) -> bool:
-    views = sheet.get("filterViews", [])
-    return isinstance(views, list) and any(
-        isinstance(view, Mapping) and view.get("title") == _SHOPEE_VIEW_TITLE for view in views
-    )
+def _shopee_filter_view_request(sheet_id: int, rows: int) -> Mapping[str, Any]:
+    return {"addFilterView": {"filter": {"title": _SHOPEE_VIEW_TITLE, "range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": rows, "startColumnIndex": 0, "endColumnIndex": len(IMPORT_HEADERS)}, "criteria": {str(_STATUS_COLUMN): {"condition": {"type": "TEXT_EQ", "values": [{"userEnteredValue": ImportStatus.AGUARDANDO_CONVERSAO.value}]}}}}}}
 
 
-def _has_conditional_status_rule(sheet: Mapping[str, Any], status: str) -> bool:
-    rules = sheet.get("conditionalFormats", [])
-    if not isinstance(rules, list):
-        return False
-    for rule in rules:
-        try:
-            values = rule["booleanRule"]["condition"]["values"]
-        except (KeyError, TypeError):
-            continue
-        if values == [{"userEnteredValue": status}]:
-            return True
-    return False
+def _filter_view_state(sheet: Mapping[str, Any], sheet_id: int, rows: int) -> str:
+    expected = _shopee_filter_view_request(sheet_id, rows)["addFilterView"]["filter"]
+    views = [view for view in _semantic_entries(sheet, "filterViews") if view.get("title") == _SHOPEE_VIEW_TITLE]
+    if not views:
+        return "missing"
+    exact = all({key: value for key, value in view.items() if key != "filterViewId"} == expected for view in views)
+    return "exact" if len(views) == 1 and exact else "conflict"
 
 
-def _transport_update(update: SheetUpdate) -> Mapping[str, Any]:
-    if not isinstance(update, SheetUpdate) or not isinstance(update.range_name, str) or not update.range_name:
+def _semantic_entries(sheet: Mapping[str, Any], key: str) -> list[Mapping[str, Any]]:
+    entries = sheet.get(key, [])
+    if not isinstance(entries, list) or not all(isinstance(entry, Mapping) for entry in entries):
+        raise SheetSchemaError("Os metadados auxiliares da aba são inválidos.")
+    return entries
+
+
+def _approved_header_contract(headers: Sequence[str]) -> tuple[str, ...]:
+    if not isinstance(headers, Sequence) or isinstance(headers, (str, bytes)):
+        raise SheetSchemaError("O contrato da aba é inválido.")
+    expected = tuple(headers)
+    if expected not in (IMPORT_HEADERS, PRODUCTS_HEADERS):
+        raise SheetSchemaError("O contrato da aba é inválido.")
+    return expected
+
+
+def _transport_update(update: SheetUpdate, worksheet: str, width_limit: int) -> Mapping[str, Any]:
+    if not isinstance(update, SheetUpdate):
         raise SheetSchemaError("A atualização da planilha é inválida.")
+    range_name, width, height = _authorized_rectangle(update.range_name, worksheet, width_limit)
+    if not isinstance(update.values, tuple) or len(update.values) != height:
+        raise SheetSchemaError("As dimensões da atualização não correspondem ao intervalo.")
     rows: list[list[Any]] = []
-    if not isinstance(update.values, tuple) or not update.values:
-        raise SheetSchemaError("A atualização da planilha não contém valores.")
     for row in update.values:
-        if not isinstance(row, tuple) or not row:
-            raise SheetSchemaError("A atualização da planilha não contém uma linha válida.")
+        if not isinstance(row, tuple) or len(row) != width:
+            raise SheetSchemaError("As dimensões da atualização não correspondem ao intervalo.")
         rows.append([_transport_value(value) for value in row])
-    return {"range": update.range_name, "values": rows}
+    return {"range": range_name, "values": rows}
+
+
+def _authorized_rectangle(range_name: Any, worksheet: str, width_limit: int) -> tuple[str, int, int]:
+    if not isinstance(range_name, str) or not (match := _A1.fullmatch(range_name)):
+        raise SheetSchemaError("O intervalo de atualização é inválido.")
+    quoted, plain, first_column, first_row, last_column, last_row = match.groups()
+    title = quoted.replace("''", "'") if quoted is not None else plain
+    if title != worksheet:
+        raise SheetSchemaError("O intervalo aponta para uma aba não autorizada.")
+    _validate_title(title)
+    last_column, last_row = last_column or first_column, last_row or first_row
+    start_col, end_col, start_row, end_row = _column_number(first_column), _column_number(last_column), int(first_row), int(last_row)
+    if start_col > end_col or start_row > end_row or start_col < 0 or end_col >= width_limit:
+        raise SheetSchemaError("O intervalo de atualização está fora do contrato.")
+    return _a1_range(title, f"{first_column}{start_row}:{last_column}{end_row}"), end_col - start_col + 1, end_row - start_row + 1
 
 
 def _transport_value(value: Any) -> Any:
@@ -408,28 +349,75 @@ def _transport_value(value: Any) -> Any:
     if isinstance(value, Decimal):
         if not value.is_finite():
             raise SheetSchemaError("A atualização contém um número inválido.")
-        return float(value)
+        try:
+            result = float(value)
+        except (OverflowError, ValueError):
+            raise SheetSchemaError("A atualização contém um número inválido.") from None
+        if not isfinite(result):
+            raise SheetSchemaError("A atualização contém um número inválido.")
+        return result
     if isinstance(value, float):
         if not isfinite(value):
             raise SheetSchemaError("A atualização contém um número inválido.")
         return value
     if isinstance(value, datetime):
-        return value.isoformat()
+        point = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+        return (point - datetime(1899, 12, 30, tzinfo=UTC)).total_seconds() / 86_400
     if isinstance(value, date):
-        return value.isoformat()
+        return (datetime(value.year, value.month, value.day, tzinfo=UTC) - datetime(1899, 12, 30, tzinfo=UTC)).days
     raise SheetSchemaError("A atualização contém um tipo de célula inválido.")
 
 
-def _range(worksheet: str, cells: str) -> str:
-    if not isinstance(worksheet, str) or not worksheet or "!" in worksheet:
+def _a1_range(title: str, cells: str) -> str:
+    _validate_title(title)
+    return "'" + title.replace("'", "''") + "'!" + cells
+
+
+def _validate_title(title: Any) -> None:
+    if not _title_is_valid(title):
         raise SheetSchemaError("O nome da aba é inválido.")
-    return f"{worksheet}!{cells}"
+
+
+def _title_is_valid(title: Any) -> bool:
+    return isinstance(title, str) and 0 < len(title) <= 100 and not title.isspace() and not any(character in title for character in "[]:*?/\\!\x00\n\r")
+
+
+def _column_number(label: str) -> int:
+    value = 0
+    for character in label:
+        value = value * 26 + ord(character) - ord("A") + 1
+    return value - 1
+
+
+def _column_label(number: int) -> str:
+    result = ""
+    while True:
+        number, remainder = divmod(number, 26)
+        result = chr(ord("A") + remainder) + result
+        if number == 0:
+            return result
+        number -= 1
+
+
+def _is_uuid4(value: str) -> bool:
+    return bool(re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", value))
 
 
 def _http_status(error: Exception) -> int | None:
-    value = getattr(error, "status_code", None)
-    if isinstance(value, int):
-        return value
-    response = getattr(error, "resp", None)
-    value = getattr(response, "status", None)
-    return value if isinstance(value, int) else None
+    status = getattr(error, "status_code", None)
+    if isinstance(status, int):
+        return status
+    status = getattr(getattr(error, "resp", None), "status", None)
+    return status if isinstance(status, int) else None
+
+
+def _api_error(status: int | None) -> Exception:
+    if status == 400:
+        return SheetSchemaError("A requisição para Google Sheets é inválida.")
+    if status in {401, 403}:
+        return ConfigurationError("A conta de serviço não tem acesso à planilha.")
+    if status == 404:
+        return SheetSchemaError("A planilha ou intervalo não foi encontrado.")
+    if status in {429, 500, 502, 503, 504}:
+        return ConfigurationError("Google Sheets está temporariamente indisponível.")
+    return ConfigurationError("Falha ao comunicar com Google Sheets.")
