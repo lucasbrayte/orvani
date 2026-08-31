@@ -1,7 +1,7 @@
 """Contratos puros de mapeamento e adoção de Produtos."""
 
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone, tzinfo
 from decimal import Decimal
 
 import pytest
@@ -15,6 +15,7 @@ from automation.models import (
     ProductSnapshot,
 )
 from automation.sync import (
+    _canonical_offer_expiry,
     calculate_discount,
     data_signature,
     find_product_match,
@@ -22,6 +23,17 @@ from automation.sync import (
     map_snapshot_to_product_values,
     plan_publication,
 )
+
+
+class _RaisingTzinfo(tzinfo):
+    def __init__(self, error_type):
+        self.error_type = error_type
+
+    def utcoffset(self, _value):
+        raise self.error_type("secret tzinfo failure")
+
+    def dst(self, _value):
+        return None
 
 
 def _record(**changes):
@@ -454,6 +466,40 @@ def test_publication_accepts_a_fractional_iso_timestamp_with_a_valid_offset():
     })
 
     assert plan_publication(snapshot, record, (existing,)) == ()
+
+
+def test_canonical_offer_expiry_normalizes_an_aware_datetime():
+    point = datetime(2026, 8, 31, 21, 0, 0, 123456, tzinfo=timezone(timedelta(hours=-3)))
+
+    assert _canonical_offer_expiry(point) == "2026-09-01T00:00:00.123456Z"
+
+
+def test_canonical_offer_expiry_rejects_a_naive_datetime():
+    with pytest.raises(InvalidProductDataError):
+        _canonical_offer_expiry(datetime(2026, 9, 1))
+
+
+def test_canonical_offer_expiry_rejects_datetime_utc_overflow_without_leaking():
+    point = datetime(1, 1, 1, tzinfo=timezone(timedelta(hours=23, minutes=59)))
+
+    with pytest.raises(InvalidProductDataError) as raised:
+        _canonical_offer_expiry(point)
+
+    error = raised.value
+    assert error.__cause__ is None and error.__context__ is None
+    assert "date value out of range" not in str(error)
+
+
+@pytest.mark.parametrize("error_type", [ValueError, TypeError])
+def test_canonical_offer_expiry_rejects_datetime_with_broken_tzinfo_without_leaking(error_type):
+    point = datetime(2026, 9, 1, tzinfo=_RaisingTzinfo(error_type))
+
+    with pytest.raises(InvalidProductDataError) as raised:
+        _canonical_offer_expiry(point)
+
+    error = raised.value
+    assert error.__cause__ is None and error.__context__ is None
+    assert "secret tzinfo failure" not in str(error)
 
 
 @pytest.mark.parametrize("invalid_rows", [None, 3, "not rows", b"not rows", (_row(7), object())])

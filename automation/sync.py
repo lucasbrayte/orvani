@@ -409,13 +409,14 @@ def _publication_values_equal(desired: Sequence[Any], existing: Sequence[Any]) -
 def _canonical_offer_expiry(value: Any) -> str | None:
     if value in (None, ""):
         return None
-    if isinstance(value, datetime):
-        point = value.replace(tzinfo=UTC) if value.tzinfo is None or value.utcoffset() is None else value.astimezone(UTC)
-        return point.isoformat(timespec="microseconds").replace("+00:00", "Z")
-    if not isinstance(value, str):
+    if not isinstance(value, (datetime, str)):
         raise InvalidProductDataError("A validade da oferta existente é inválida.")
     try:
-        if _ISO_DATE.fullmatch(value):
+        if isinstance(value, datetime):
+            if value.tzinfo is None or value.utcoffset() is None:
+                raise ValueError
+            point = value
+        elif _ISO_DATE.fullmatch(value):
             day = date.fromisoformat(value)
             point = datetime(day.year, day.month, day.day, tzinfo=UTC)
         elif _ISO_TIMESTAMP.fullmatch(value):
@@ -427,7 +428,8 @@ def _canonical_offer_expiry(value: Any) -> str | None:
             raise ValueError
         return point.astimezone(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
     except (TypeError, ValueError, OverflowError):
-        raise InvalidProductDataError("A validade da oferta existente é inválida.") from None
+        invalid = InvalidProductDataError("A validade da oferta existente é inválida.")
+    raise invalid from None
 
 
 def _validate_worksheet(worksheet: Any) -> None:
