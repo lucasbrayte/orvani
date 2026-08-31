@@ -413,11 +413,11 @@ const CONFIG = {
     if (safeUrl) {
       const pathname = new URL(safeUrl).pathname;
       if (partnerKey === "mercado_livre") {
-        const mercadoMatch = /\/p\/(MLB\d+)(?:\/|$)/i.exec(pathname);
+        const mercadoMatch = /\/p\/(MLB[0-9]{6,15})(?:\/|$)/.exec(pathname);
         if (mercadoMatch) return `sheet-${mercadoMatch[1].toLowerCase()}`;
       }
       if (partnerKey === "shopee") {
-        const shopeeMatch = /^\/product\/[1-9]\d*\/([1-9]\d*)\/?$/.exec(pathname);
+        const shopeeMatch = /^\/product\/[1-9][0-9]{0,14}\/([1-9][0-9]{0,14})\/?$/.exec(pathname);
         if (shopeeMatch) return `sheet-shopee-${shopeeMatch[1]}`;
       }
     }

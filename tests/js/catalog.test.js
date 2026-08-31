@@ -149,3 +149,62 @@ test("does not promote arbitrary numeric or query tokens into stable identities"
     "sheet-mercado-livre-produto-teste",
   );
 });
+
+test("accepts only Mercado Livre IDs with six through fifteen ASCII digits", () => {
+  const fallback = "sheet-mercado-livre-produto-teste";
+  const cases = [
+    ["MLB123456", "sheet-mlb123456"],
+    ["MLB123456789012345", "sheet-mlb123456789012345"],
+    ["MLB12345", fallback],
+    ["MLB1234567890123456", fallback],
+  ];
+
+  for (const [itemId, expected] of cases) {
+    assert.equal(
+      core.stableSheetId(
+        "Produto Teste",
+        `https://www.mercadolivre.com.br/produto-de-teste/p/${itemId}`,
+        "mercado_livre",
+      ),
+      expected,
+    );
+  }
+});
+
+test("accepts only positive one-through-fifteen-digit Shopee path components", () => {
+  const fallback = "sheet-shopee-produto-teste";
+  const cases = [
+    ["1", "1", "sheet-shopee-1"],
+    ["123456789012345", "987654321098765", "sheet-shopee-987654321098765"],
+    ["0", "1", fallback],
+    ["01", "1", fallback],
+    ["1", "0", fallback],
+    ["1", "01", fallback],
+    ["1234567890123456", "1", fallback],
+    ["1", "1234567890123456", fallback],
+  ];
+
+  for (const [shopId, itemId, expected] of cases) {
+    assert.equal(
+      core.stableSheetId(
+        "Produto Teste",
+        `https://shopee.com.br/product/${shopId}/${itemId}`,
+        "shopee",
+      ),
+      expected,
+    );
+  }
+});
+
+test("falls back to a bounded ID for adversarially long stable-path tokens", () => {
+  const huge = "9".repeat(10000);
+  const fallback = "sheet-mercado-livre-produto-teste";
+  const result = core.stableSheetId(
+    "Produto Teste",
+    `https://www.mercadolivre.com.br/produto-de-teste/p/MLB${huge}`,
+    "mercado_livre",
+  );
+
+  assert.equal(result, fallback);
+  assert.equal(result.length, fallback.length);
+});
