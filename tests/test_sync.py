@@ -13,6 +13,7 @@ from automation.models import (
     InvalidProductDataError,
     ProductRow,
     ProductSnapshot,
+    ImportStatus,
 )
 from automation.sync import (
     _canonical_offer_expiry,
@@ -23,6 +24,81 @@ from automation.sync import (
     map_snapshot_to_product_values,
     plan_publication,
 )
+
+
+def test_sync_engine_rejects_an_unknown_execution_mode():
+    """Catches accepting a typo that could silently broaden a queue run."""
+    from automation.sync import SyncEngine
+
+    with pytest.raises(Exception):
+        SyncEngine(object(), object()).run("everything", dry_run=True)
+
+
+def test_sync_engine_moves_a_new_affiliate_row_to_review_without_writing_in_dry_run():
+    """Catches a successful fetch that forgets the NOVO -> REVISAR transition."""
+    from conftest import FakeSheetsGateway, _quoted
+    from automation.config import IMPORT_HEADERS
+    from automation.sync import SyncEngine, _record_values
+
+    class Connector:
+        partner_key = "mercado_livre"
+
+        def fetch(self, _url):
+            return _snapshot()
+
+    class Registry:
+        def select(self, _url):
+            return Connector()
+
+    imported = _record(status=ImportStatus.NOVO, publish="Não", data_signature="")
+    sheets = FakeSheetsGateway(
+        sheets=(
+            {"properties": {"sheetId": 1, "title": "Importações", "sheetType": "GRID", "gridProperties": {"rowCount": 20, "columnCount": 32}}},
+            {"properties": {"sheetId": 2, "title": "Produtos", "sheetType": "GRID", "gridProperties": {"rowCount": 20, "columnCount": 20}}},
+        ),
+        values={
+            _quoted("Importações", "A1:AF"): [list(IMPORT_HEADERS), list(_record_values(imported))],
+            _quoted("Produtos", "A1:T"): [list(PRODUCTS_HEADERS)],
+        },
+    )
+
+    report = SyncEngine(sheets, Registry(), clock=lambda: datetime(2026, 8, 30, 13, tzinfo=UTC)).run("pending", dry_run=True)
+
+    assert report.final_status(2) is ImportStatus.REVISAR
+    assert sheets.value_writes == []
+
+
+def test_sync_engine_turns_the_third_temporary_failure_into_attention_without_product_plan():
+    """Catches overwriting a published snapshot on retry exhaustion."""
+    from conftest import FakeSheetsGateway, _quoted
+    from automation.config import IMPORT_HEADERS
+    from automation.models import TemporaryFetchError
+    from automation.sync import SyncEngine, _record_values
+
+    class Registry:
+        def select(self, _url):
+            class Connector:
+                def fetch(self, _url):
+                    raise TemporaryFetchError("private https://secret.invalid/?token=no")
+            return Connector()
+
+    imported = _record(status=ImportStatus.PUBLICADO, consecutive_attempts=2)
+    sheets = FakeSheetsGateway(
+        sheets=(
+            {"properties": {"sheetId": 1, "title": "Importações", "sheetType": "GRID", "gridProperties": {"rowCount": 20, "columnCount": 32}}},
+            {"properties": {"sheetId": 2, "title": "Produtos", "sheetType": "GRID", "gridProperties": {"rowCount": 20, "columnCount": 20}}},
+        ),
+        values={
+            _quoted("Importações", "A1:AF"): [list(IMPORT_HEADERS), list(_record_values(imported))],
+            _quoted("Produtos", "A1:T"): [list(PRODUCTS_HEADERS), list(map_snapshot_to_product_values(_snapshot(), imported, None))],
+        },
+    )
+
+    report = SyncEngine(sheets, Registry()).run("full", dry_run=True)
+
+    assert report.final_status(2) is ImportStatus.ATENCAO
+    assert report.planned_product_updates == ()
+    assert "secret" not in report.items[0].message
 
 
 class _RaisingTzinfo(tzinfo):
