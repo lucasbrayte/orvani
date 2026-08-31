@@ -417,7 +417,7 @@ const CONFIG = {
         if (mercadoMatch) return `sheet-${mercadoMatch[1].toLowerCase()}`;
       }
       if (partnerKey === "shopee") {
-        const shopeeMatch = /^\/product\/[1-9][0-9]{0,14}\/([1-9][0-9]{0,14})\/?$/.exec(pathname);
+        const shopeeMatch = /^\/product\/[1-9][0-9]{0,14}\/([1-9][0-9]{0,14})$/.exec(pathname);
         if (shopeeMatch) return `sheet-shopee-${shopeeMatch[1]}`;
       }
     }

@@ -196,6 +196,17 @@ test("accepts only positive one-through-fifteen-digit Shopee path components", (
   }
 });
 
+test("falls back for a trailing slash after a bounded Shopee product path", () => {
+  assert.equal(
+    core.stableSheetId(
+      "Produto Teste",
+      "https://shopee.com.br/product/1/1/",
+      "shopee",
+    ),
+    "sheet-shopee-produto-teste",
+  );
+});
+
 test("falls back to a bounded ID for adversarially long stable-path tokens", () => {
   const huge = "9".repeat(10000);
   const fallback = "sheet-mercado-livre-produto-teste";
