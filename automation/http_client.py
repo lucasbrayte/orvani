@@ -69,6 +69,19 @@ class HttpResponse:
         return self.body
 
 
+class _BorrowedTransport(httpx.BaseTransport):
+    """Delegate requests without taking ownership of an injected transport."""
+
+    def __init__(self, transport: httpx.BaseTransport) -> None:
+        self._transport = transport
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        return self._transport.handle_request(request)
+
+    def close(self) -> None:
+        """The caller, not the safe wrapper, owns the wrapped transport."""
+
+
 class SafeHttpClient:
     """Fetch allowed HTTPS URLs without automatic redirects or unbounded bodies."""
 
@@ -76,23 +89,29 @@ class SafeHttpClient:
         self,
         *,
         client: httpx.Client | None = None,
+        transport: httpx.BaseTransport | None = None,
         dns_resolver: Callable[..., list[tuple[object, ...]]] = socket.getaddrinfo,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
-        self._client = client or httpx.Client(
+        if client is not None and transport is not None:
+            raise ValueError("Use client ou transport, não ambos.")
+        if client is not None:
+            transport = _borrowed_client_transport(client)
+        elif transport is not None:
+            transport = _BorrowedTransport(transport)
+        self._client = httpx.Client(
+            transport=transport,
             follow_redirects=False,
             headers={"User-Agent": "Orvani affiliate catalog automation/1.0"},
             timeout=_REQUEST_TIMEOUT,
             trust_env=False,
         )
-        self._owns_client = client is None
         self._dns_resolver = dns_resolver
         self._sleep = sleep
 
     def close(self) -> None:
-        """Close only the HTTPX client this instance created itself."""
-        if self._owns_client:
-            self._client.close()
+        """Close the isolated client without closing a caller-owned transport."""
+        self._client.close()
 
     def __enter__(self) -> "SafeHttpClient":
         return self
@@ -242,6 +261,19 @@ def _redirect_host_is_allowed(
         return redirect_host_policy(host)
     except Exception:
         return False
+
+
+def _borrowed_client_transport(client: httpx.Client) -> httpx.BaseTransport:
+    """Create an owned client boundary over an HTTPX client's base transport.
+
+    HTTPX exposes no public transport accessor. This compatibility path reads
+    only the base transport, never sends through or changes the injected client.
+    New callers can inject ``transport`` directly.
+    """
+    transport = getattr(client, "_transport", None)
+    if not isinstance(transport, httpx.BaseTransport):
+        raise ValueError("Cliente HTTP sem transporte compatível.")
+    return _BorrowedTransport(transport)
 
 
 def _read_bounded_body(response: httpx.Response) -> bytes:

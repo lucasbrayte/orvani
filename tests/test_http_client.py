@@ -137,33 +137,45 @@ def test_google_export_redirect_policy_never_admits_the_initial_url(http_client_
     assert calls == Counter()
 
 
-def test_preserves_injected_cookie_state_without_sending_cookies(http_client_factory):
+def test_isolates_injected_client_cookie_state_without_sending_cookies():
     requests = []
-    client, _calls = http_client_factory(
-        {
-            "https://example.com/start": (
+    def handler(request):
+        requests.append(request)
+        if request.url.path == "/start":
+            return httpx.Response(
                 302,
-                {
+                headers={
                     "location": "/end",
                     "set-cookie": "response_cookie=should-not-return; Path=/",
                 },
-                b"",
-            ),
-            "https://example.com/end": (200, {"content-type": "text/html"}, b"ok"),
-        },
-        requests=requests,
-        client_builder=lambda transport: httpx.Client(
-            transport=transport,
-            headers={"Cookie": "header_cookie=should-not-send"},
-            cookies={"jar_cookie": "should-not-send"},
-        ),
+                request=request,
+            )
+        return httpx.Response(200, headers={"content-type": "text/html"}, content=b"ok", request=request)
+
+    shared_client = httpx.Client(
+        transport=httpx.MockTransport(handler),
+        headers={"Cookie": "header_cookie=should-not-send"},
+        cookies={"jar_cookie": "should-not-send"},
+    )
+    before_cookie_jar = _cookie_jar_snapshot(shared_client.cookies)
+    client = SafeHttpClient(
+        client=shared_client,
+        dns_resolver=lambda *_args: [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 443))
+        ],
     )
 
-    response = client.get("https://example.com/start", ("example.com",), ("text/html",))
+    try:
+        response = client.get("https://example.com/start", ("example.com",), ("text/html",))
 
-    assert response.body == b"ok"
-    assert [request.headers.get("cookie") for request in requests] == [None, None]
-    assert client._client.cookies.get("jar_cookie") == "should-not-send"
+        assert response.body == b"ok"
+        assert [request.headers.get("cookie") for request in requests] == [None, None]
+        assert _cookie_jar_snapshot(shared_client.cookies) == before_cookie_jar
+        assert shared_client.cookies.get("response_cookie") is None
+    finally:
+        client.close()
+        assert shared_client.is_closed is False
+        shared_client.close()
 
 
 def test_default_client_ignores_ambient_transport_settings_and_starts_cookie_free():
@@ -174,6 +186,13 @@ def test_default_client_ignores_ambient_transport_settings_and_starts_cookie_fre
         assert list(client._client.cookies.items()) == []
     finally:
         client.close()
+
+
+def _cookie_jar_snapshot(cookies):
+    return tuple(
+        tuple(sorted(vars(cookie).items(), key=lambda item: item[0]))
+        for cookie in cookies.jar
+    )
 
 
 def test_rejects_private_dns_before_making_a_request(http_client_factory):
