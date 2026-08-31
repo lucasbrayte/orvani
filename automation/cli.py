@@ -176,7 +176,7 @@ def _validate_rows(imports: Sequence[tuple[Any, ...]], products: Sequence[tuple[
         ids.add(automation_id)
         if cells[25] == ImportStatus.PUBLICADO.value:
             required = (1, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 20)
-            if any(cells[index] in (None, "") for index in required):
+            if any(_published_input_missing(cells[index]) for index in required):
                 failures += 1
         try:
             record, _ = ImportRecord.from_sheet_row(row_number, cells)
@@ -193,6 +193,10 @@ def _validate_rows(imports: Sequence[tuple[Any, ...]], products: Sequence[tuple[
         except AmbiguousProductMatchError:
             failures += 1
     return failures
+
+
+def _published_input_missing(value: object) -> bool:
+    return value is None or (isinstance(value, str) and not normalize_unicode_text(value))
 
 
 if __name__ == "__main__":

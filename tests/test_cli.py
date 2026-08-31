@@ -253,6 +253,16 @@ def test_validate_requires_every_published_product_input(cli_dependencies, colum
     assert main(["validate"], replace(cli_dependencies, gateway=_gateway([row]))) == 1
 
 
+@pytest.mark.parametrize("column", [6, 7, 8, 9, 10, 11, 12, 13, 14, 20])
+def test_validate_rejects_whitespace_only_published_text_input(cli_dependencies, column):
+    """Catches normalized-empty publication fields bypassing the literal-empty gate."""
+    from automation.cli import main
+
+    row = _record(status="PUBLICADO", publish="Sim")
+    row[column] = "   "
+    assert main(["validate"], replace(cli_dependencies, gateway=_gateway([row]))) == 1
+
+
 def test_validate_rejects_ambiguous_products_by_normalized_last_published_link(cli_dependencies):
     """Catches ambiguity hidden by reordered query parameters on the published link."""
     from automation.cli import main
