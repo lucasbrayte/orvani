@@ -947,6 +947,29 @@ def test_blocked_row_with_blank_id_still_writes_only_terminal_operational_ranges
     ]
 
 
+def test_unselected_blocked_row_with_blank_id_has_no_pending_live_writes():
+    """Catches unselected Bloqueado rows receiving a broad A:AF default write."""
+    from automation.models import UpdateMode
+    from automation.sync import SyncEngine, _record_values, _signature_envelope
+
+    record = _record(
+        automation_id="", status=ImportStatus.PUBLICADO,
+        update_mode=UpdateMode.BLOQUEADO,
+    )
+    record = replace(record, data_signature=_signature_envelope(record, "0" * 64))
+    raw = list(_record_values(record))
+    sheets = _sync_gateway(raw_imports=[raw])
+    registry = _OutcomeRegistry({})
+
+    report = SyncEngine(sheets, registry).run("pending", dry_run=False)
+
+    assert report.items == ()
+    assert registry.selected == [] and registry.fetched == []
+    assert report.planned_product_updates == ()
+    assert [update.range_name for update in report.planned_import_updates] == []
+    assert sheets.value_writes == []
+
+
 def test_mixed_blocked_and_fetch_run_checkpoints_only_fetchable_rows():
     """Catches mixed runs including blocked rows in the PROCESSANDO checkpoint."""
     from automation.models import UpdateMode

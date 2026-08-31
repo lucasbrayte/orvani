@@ -552,7 +552,10 @@ class SyncEngine:
         fetched = {record.row_number: _BlockedMode() for record in blocked_records}
         fetched.update(self._fetch_all(fetch_records))
 
-        blocked_row_numbers = {record.row_number for record in blocked_records}
+        blocked_row_numbers = {
+            record.row_number for record in records
+            if record.update_mode is UpdateMode.BLOQUEADO
+        }
         import_updates: list[SheetUpdate] = [
             update for update in default_rows
             if _sheet_update_row(update) not in blocked_row_numbers
