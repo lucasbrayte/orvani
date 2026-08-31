@@ -18,6 +18,7 @@ import re
 from threading import Lock, Semaphore
 from typing import Any
 from urllib.parse import urlsplit
+from uuid import UUID
 
 from .config import (
     IMPORT_HEADERS,
@@ -25,6 +26,7 @@ from .config import (
     PARTNERS,
     PRODUCTS_HEADERS,
     PRODUCTS_WORKSHEET,
+    SPREADSHEET_ID,
     normalize_unicode_text,
 )
 from .models import (
@@ -449,7 +451,7 @@ def _canonical_offer_expiry(value: Any) -> str | None:
         else:
             raise ValueError
         return point.astimezone(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
-    except (TypeError, ValueError, OverflowError):
+    except (AttributeError, TypeError, ValueError, OverflowError):
         invalid = InvalidProductDataError("A validade da oferta existente é inválida.")
     raise invalid from None
 
@@ -506,6 +508,12 @@ class SyncEngine:
         records, default_rows = self._read_import_records()
         product_rows = _read_product_rows(self._gateway, self._products)
         selected = tuple(record for record in records if _is_selected(record, mode, now))
+        # This is the durable recovery checkpoint.  Product rows are already
+        # fully validated above, so no malformed catalog data can leave a
+        # queue item PROCESSANDO.  A failed checkpoint prevents every fetch.
+        if selected and not dry_run:
+            checkpoint = tuple(_processing_update(record, now, self._imports) for record in selected)
+            batch_write(self._gateway, checkpoint, worksheet=self._imports, headers=IMPORT_HEADERS)
         fetched = self._fetch_all(selected)
 
         import_updates: list[SheetUpdate] = list(default_rows)
@@ -519,7 +527,7 @@ class SyncEngine:
             import_updates.extend(changes)
             if publication:
                 product_updates.extend(publication)
-                _apply_product_plan(working_products, publication[0])
+                _apply_product_plan(working_products, publication[0], external_id=target.external_id)
 
         import_updates = _dedupe_import_updates(import_updates)
         product_updates.sort(key=_sheet_update_row)
@@ -546,18 +554,25 @@ class SyncEngine:
         for offset, row in enumerate(rows, start=2):
             # Preserve physical sheet identity even for entirely blank lines.
             normalized = list(row) + [""] * (len(IMPORT_HEADERS) - len(row))
-            default = plan_new_import_row(self._imports, offset, current_values=row)
+            default = _deterministic_import_defaults(self._imports, offset, row)
             if default is not None:
                 normalized = list(default.values[0])
                 defaults.append(default)
             try:
                 record, id_only = ImportRecord.from_sheet_row(offset, normalized)
-            except (ValueError, TypeError, ArithmeticError) as error:
-                # A malformed row must not abort unrelated rows.  There is no
-                # safe ImportRecord to fetch, so it is intentionally omitted.
-                continue
+            except (ValueError, TypeError, ArithmeticError):
+                # A malformed 32-column operational row cannot safely be
+                # fetched or partially rewritten.  Abort before checkpoint.
+                raise SheetSchemaError("Uma linha de Importações é inválida.") from None
             if id_only is not None and default is None:
-                defaults.append(id_only)
+                # ImportRecord only generates random UUIDs.  Replace that
+                # provisional write with the stable engine identity.
+                stable = _deterministic_import_defaults(self._imports, offset, row)
+                if stable is None:
+                    raise SheetSchemaError("Não foi possível adotar a linha de Importações.")
+                records.append(replace(record, automation_id=stable.values[0][0]))
+                defaults.append(stable)
+                continue
             records.append(record)
         return tuple(records), tuple(defaults)
 
@@ -565,14 +580,26 @@ class SyncEngine:
         locks: dict[str, Semaphore] = {}
         locks_guard = Lock()
 
-        def fetch(record: ImportRecord) -> object:
+        selected_connectors: list[tuple[ImportRecord, Any]] = []
+        output: dict[int, object] = {}
+        for record in records:
+            if record.update_mode is UpdateMode.BLOQUEADO:
+                output[record.row_number] = _BlockedMode()
+                continue
+            try:
+                selected_connectors.append((record, self._registry.select(_fetch_url(record))))
+            except (UnsupportedUrlError, InvalidProductDataError) as error:
+                output[record.row_number] = error
+            except Exception:
+                output[record.row_number] = TemporaryFetchError("Falha temporária na seleção.")
+
+        def fetch(record: ImportRecord, connector: Any) -> object:
             url = _fetch_url(record)
-            hostname = _hostname(url)
+            hostname = str(getattr(connector, "partner_key", "") or _hostname(url))
             with locks_guard:
                 gate = locks.setdefault(hostname, Semaphore(1))
             with gate:
                 try:
-                    connector = self._registry.select(url)
                     if _is_common_shopee(record, connector):
                         return _ShopeeConversion()
                     snapshot = connector.fetch(url)
@@ -586,13 +613,12 @@ class SyncEngine:
                     # messages, so never propagate them into the spreadsheet.
                     return TemporaryFetchError("Falha temporária na coleta.")
 
-        if not records:
-            return {}
+        if not selected_connectors:
+            return output
         futures: dict[Future[object], int] = {}
         with self._executor_factory(max_workers=self._max_workers) as executor:
-            for record in records:
-                futures[executor.submit(fetch, record)] = record.row_number
-            output: dict[int, object] = {}
+            for record, connector in selected_connectors:
+                futures[executor.submit(fetch, record, connector)] = record.row_number
             for future, row_number in futures.items():
                 output[row_number] = future.result()
         return output
@@ -604,6 +630,10 @@ class SyncEngine:
         product_rows: Sequence[ProductRow],
         now: datetime,
     ) -> tuple[SyncItemResult, tuple[SheetUpdate, ...], tuple[SheetUpdate, ...]]:
+        if isinstance(outcome, _BlockedMode):
+            target = replace(record, status=record.status, message="Modo bloqueado: dados preservados.")
+            changes = _state_updates(target, now, blocked=True, worksheet=self._imports)
+            return _result(record, target, bool(changes), False), changes, ()
         if isinstance(outcome, _ShopeeConversion):
             target = replace(record, status=ImportStatus.AGUARDANDO_CONVERSAO, message="Aguardando conversão Shopee.", consecutive_attempts=0)
             changes = _state_updates(target, now, blocked=record.update_mode is UpdateMode.BLOQUEADO, worksheet=self._imports)
@@ -639,7 +669,8 @@ class SyncEngine:
             changes = _state_updates(target, now, blocked=True, worksheet=self._imports)
             return _result(record, target, bool(changes), False), changes, ()
         signature = _snapshot_signature(snapshot)
-        changed = signature != record.data_signature
+        _old_link, old_data = _signature_parts(record.data_signature)
+        changed = signature != old_data
         if record.update_mode is UpdateMode.BLOQUEADO:
             target = replace(record, status=ImportStatus.ATENCAO if partial else ImportStatus.REVISAR, message="Modo bloqueado: dados preservados.", consecutive_attempts=0)
             changes = _state_updates(target, now, blocked=True, worksheet=self._imports)
@@ -666,10 +697,16 @@ class SyncEngine:
             changes = _full_record_update(target, worksheet=self._imports)
         else:
             changes = _state_updates(target, now, blocked=False, worksheet=self._imports)
+            if target.status is ImportStatus.PUBLICADO:
+                changes = (*changes, SheetUpdate(_import_range(target.row_number, "AC", "AC", self._imports), ((target.last_published_url,),)))
         return _result(record, target, bool(changes), bool(publication)), changes, publication
 
 
 class _ShopeeConversion:
+    pass
+
+
+class _BlockedMode:
     pass
 
 
@@ -680,28 +717,37 @@ def _result(original: ImportRecord, target: ImportRecord, import_changed: bool, 
 def _is_selected(record: ImportRecord, mode: str, now: datetime) -> bool:
     if not _is_yes(record.active) or record.status is ImportStatus.DESATIVADO:
         return False
-    if record.update_mode is UpdateMode.BLOQUEADO:
-        return True
     stale = record.status is ImportStatus.PROCESSANDO and _is_stale(record.last_checked_at, now)
     if mode == "full":
-        return record.status is not ImportStatus.PROCESSANDO or stale
-    if record.status in {ImportStatus.NOVO, ImportStatus.ATENCAO, ImportStatus.ERRO} or stale:
+        return record.status is ImportStatus.PUBLICADO
+    if record.status is ImportStatus.NOVO or stale:
         return True
+    if record.status in {ImportStatus.ATENCAO, ImportStatus.ERRO}:
+        return record.consecutive_attempts < 3
     if record.status is ImportStatus.AGUARDANDO_CONVERSAO:
         return bool(record.affiliate_url.strip())
+    if record.status in {ImportStatus.REVISAR, ImportStatus.PRONTO_PARA_PUBLICAR}:
+        return _is_yes(record.publish)
     try:
-        return record.link_signature is not None and record.link_signature != link_signature(_fetch_url(record))
+        old_link, _old_data = _signature_parts(record.data_signature)
+        return old_link != link_signature(_fetch_url(record))
     except UnsafeUrlError:
-        return record.status is not ImportStatus.PUBLICADO
+        return True
 
 
-def _is_stale(value: str, now: datetime) -> bool:
+def _is_stale(value: Any, now: datetime) -> bool:
     try:
+        if isinstance(value, (int, float, Decimal)) and not isinstance(value, bool):
+            instant = datetime(1899, 12, 30, tzinfo=UTC) + timedelta(days=float(value))
+            return now - instant >= _PROCESSING_TIMEOUT
+        if isinstance(value, str) and re.fullmatch(r"-?[0-9]+(?:\.[0-9]+)?", value.strip()):
+            instant = datetime(1899, 12, 30, tzinfo=UTC) + timedelta(days=float(value))
+            return now - instant >= _PROCESSING_TIMEOUT
         text = value[:-1] + "+00:00" if value.endswith("Z") else value
         instant = datetime.fromisoformat(text)
         if instant.tzinfo is None or instant.utcoffset() is None:
             return False
-        return now - instant.astimezone(UTC) > _PROCESSING_TIMEOUT
+        return now - instant.astimezone(UTC) >= _PROCESSING_TIMEOUT
     except (TypeError, ValueError, OverflowError):
         return False
 
@@ -758,6 +804,20 @@ def _snapshot_signature(snapshot: ProductSnapshot) -> str:
     })
 
 
+def _signature_parts(value: Any) -> tuple[str | None, str | None]:
+    """Read the v1 envelope; every legacy value deliberately refreshes once."""
+    if not isinstance(value, str):
+        return None, None
+    pieces = value.split(":")
+    if len(pieces) != 3 or pieces[0] != "v1" or any(not re.fullmatch(r"[0-9a-f]{64}", piece) for piece in pieces[1:]):
+        return None, None
+    return pieces[1], pieces[2]
+
+
+def _signature_envelope(record: ImportRecord, data_hash: str) -> str:
+    return f"v1:{link_signature(_fetch_url(record))}:{data_hash}"
+
+
 def _record_from_snapshot(record: ImportRecord, snapshot: ProductSnapshot, signature: str, *, status: ImportStatus, message: str) -> ImportRecord:
     images = tuple(snapshot.images) + ("",) * 4
     previous = snapshot.previous_price
@@ -767,7 +827,30 @@ def _record_from_snapshot(record: ImportRecord, snapshot: ProductSnapshot, signa
         current_price=snapshot.current_price, previous_price=previous, calculated_discount=discount,
         coupon=snapshot.coupon or "", coupon_expires_at=snapshot.coupon_expires_at.isoformat() if snapshot.coupon_expires_at else "",
         image_1=images[0], image_2=images[1], image_3=images[2], image_4=images[3],
-        status=status, message=message, consecutive_attempts=0, data_signature=signature)
+        status=status, message=message, consecutive_attempts=0, data_signature=_signature_envelope(record, signature))
+
+
+def _deterministic_import_defaults(worksheet: str, row_number: int, row: Sequence[Any]) -> SheetUpdate | None:
+    values = list(row) + [""] * (len(IMPORT_HEADERS) - len(row))
+    if len(row) > len(IMPORT_HEADERS):
+        raise SheetSchemaError("A linha de Importações excede 32 colunas.")
+    changed = False
+    if values[0] in (None, ""):
+        seed = sha256(f"{SPREADSHEET_ID}|{worksheet}|{row_number}".encode("utf-8")).digest()[:16]
+        bits = bytearray(seed)
+        bits[6] = (bits[6] & 0x0F) | 0x40
+        bits[8] = (bits[8] & 0x3F) | 0x80
+        values[0] = str(UUID(bytes=bytes(bits)))
+        changed = True
+    for index, default in ((2, "Não"), (3, "Não"), (5, UpdateMode.AUTOMATICO.value), (25, ImportStatus.NOVO.value), (27, 0)):
+        if values[index] in (None, ""):
+            values[index] = default
+            changed = True
+    return SheetUpdate(_import_range(row_number, "A", "AF", worksheet), (tuple(values),)) if changed else None
+
+
+def _processing_update(record: ImportRecord, now: datetime, worksheet: str) -> SheetUpdate:
+    return SheetUpdate(_import_range(record.row_number, "Z", "AE", worksheet), ((ImportStatus.PROCESSANDO.value, "Processando atualização.", record.consecutive_attempts, record.last_published_url, record.data_signature, now),))
 
 
 def _full_record_update(record: ImportRecord, *, worksheet: str = IMPORT_WORKSHEET) -> tuple[SheetUpdate, ...]:
@@ -816,11 +899,16 @@ def _read_product_rows(gateway: SheetsGateway, worksheet: str) -> tuple[ProductR
     for row_number, row in enumerate(raw, start=2):
         cells = tuple(row) + ("",) * (20 - len(row))
         try:
+            price, promotional = _product_decimal(cells[7]), _product_decimal(cells[8])
+            if (price is not None and (not price.is_finite() or price <= 0)) or (promotional is not None and (not promotional.is_finite() or promotional <= 0)):
+                raise ValueError("preço inválido")
+            if cells[10] not in (None, ""):
+                _canonical_offer_expiry(cells[10])
             output.append(ProductRow(row_number, str(cells[0]), str(cells[1]), str(cells[2]), str(cells[3]), str(cells[4]), str(cells[5]), str(cells[6]),
-                _product_decimal(cells[7]), _product_decimal(cells[8]), str(cells[9]), str(cells[10]), str(cells[11]), str(cells[12]), str(cells[13]),
+                price, promotional, str(cells[9]), str(cells[10]), str(cells[11]), str(cells[12]), str(cells[13]),
                 str(cells[14]), str(cells[15]), str(cells[16]), str(cells[17]), str(cells[18]), str(cells[19])))
-        except (ValueError, ArithmeticError):
-            continue
+        except (ValueError, ArithmeticError, InvalidProductDataError):
+            raise SheetSchemaError("Uma linha de Produtos é inválida.") from None
     return tuple(output)
 
 
@@ -828,10 +916,10 @@ def _product_decimal(value: Any) -> Decimal | None:
     return None if value in (None, "") else Decimal(str(value))
 
 
-def _apply_product_plan(rows: list[ProductRow], update: SheetUpdate) -> None:
+def _apply_product_plan(rows: list[ProductRow], update: SheetUpdate, *, external_id: str | None = None) -> None:
     row_number = _sheet_update_row(update)
     values = update.values[0]
-    candidate = ProductRow(row_number, *values)
+    candidate = ProductRow(row_number, *values, reconstructed_external_id=external_id)
     for index, row in enumerate(rows):
         if row.row_number == row_number:
             rows[index] = candidate

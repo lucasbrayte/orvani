@@ -101,6 +101,36 @@ def test_sync_engine_turns_the_third_temporary_failure_into_attention_without_pr
     assert "secret" not in report.items[0].message
 
 
+def test_sync_engine_aborts_before_fetch_or_checkpoint_for_malformed_product_row():
+    """Catches silently dropping a malformed Produtos row before an append."""
+    from conftest import FakeSheetsGateway, _quoted
+    from automation.config import IMPORT_HEADERS
+    from automation.models import SheetSchemaError
+    from automation.sync import SyncEngine, _record_values
+
+    calls = []
+    class Registry:
+        def select(self, _url):
+            calls.append("select")
+            return object()
+
+    sheets = FakeSheetsGateway(
+        sheets=(
+            {"properties": {"sheetId": 1, "title": "Importações", "sheetType": "GRID", "gridProperties": {"rowCount": 20, "columnCount": 32}}},
+            {"properties": {"sheetId": 2, "title": "Produtos", "sheetType": "GRID", "gridProperties": {"rowCount": 20, "columnCount": 20}}},
+        ),
+        values={
+            _quoted("Importações", "A1:AF"): [list(IMPORT_HEADERS), list(_record_values(_record(status=ImportStatus.NOVO)))],
+            _quoted("Produtos", "A1:T"): [list(PRODUCTS_HEADERS), ["Sim", "tipo", "partner", "cat", "sub", "name", "desc", "not-price"]],
+        },
+    )
+
+    with pytest.raises(SheetSchemaError):
+        SyncEngine(sheets, Registry()).run("pending", dry_run=False)
+
+    assert calls == [] and sheets.value_writes == []
+
+
 class _RaisingTzinfo(tzinfo):
     def __init__(self, error_type):
         self.error_type = error_type
