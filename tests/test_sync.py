@@ -406,6 +406,54 @@ def test_publication_compares_expiry_semantically_and_rejects_malformed_existing
         plan_publication(snapshot, record, (replace(equal, offer_expires_at="2026-09-01T00:00:00"),))
     with pytest.raises(InvalidProductDataError):
         plan_publication(snapshot, record, (replace(equal, offer_expires_at="2026-09-01T00:00:00+99:00"),))
+    with pytest.raises(InvalidProductDataError):
+        plan_publication(
+            snapshot, record,
+            (replace(equal, offer_expires_at="0001-01-01T00:00:00+23:59"),),
+        )
+
+
+@pytest.mark.parametrize("invalid_expiry", [
+    "2026-09-01T00:00:00Z\x00",
+    "2026-09-01T00:00:00Z ",
+    "2026-09-01T00:00:00Zjunk",
+    "prefix2026-09-01T00:00:00Z",
+    "2026-09-01T00:00:00Z\n",
+    "2026-09-01T00:00:00+05",
+    "2026-09-01T00:00:00+0530",
+])
+def test_publication_rejects_any_non_iso_suffix_or_prefix_in_existing_expiry(invalid_expiry):
+    snapshot = _snapshot()
+    record = _record(last_published_url="", affiliate_url=snapshot.affiliate_url)
+    desired = map_snapshot_to_product_values(snapshot, record, _row(affiliate_url=snapshot.affiliate_url))
+    existing = _row(affiliate_url=snapshot.affiliate_url, **{
+        "active": desired[0], "product_type": desired[1], "partner": desired[2],
+        "category": desired[3], "subcategory": desired[4], "name": desired[5],
+        "description": desired[6], "price": desired[7], "promotional_price": desired[8],
+        "coupon": desired[9], "offer_expires_at": invalid_expiry, "button_text": desired[12],
+        "image_1": desired[14], "image_2": desired[15], "image_3": desired[16],
+        "image_4": desired[17], "order": desired[18], "featured": desired[19],
+    })
+
+    with pytest.raises(InvalidProductDataError):
+        plan_publication(snapshot, record, (existing,))
+
+
+def test_publication_accepts_a_fractional_iso_timestamp_with_a_valid_offset():
+    snapshot = _snapshot(coupon_expires_at=datetime(2026, 8, 31, 21, 0, 0, 123456, tzinfo=timezone(timedelta(hours=-3))))
+    record = _record(last_published_url="", affiliate_url=snapshot.affiliate_url)
+    desired = map_snapshot_to_product_values(snapshot, record, _row(affiliate_url=snapshot.affiliate_url))
+    existing = _row(affiliate_url=snapshot.affiliate_url, **{
+        "active": desired[0], "product_type": desired[1], "partner": desired[2],
+        "category": desired[3], "subcategory": desired[4], "name": desired[5],
+        "description": desired[6], "price": desired[7], "promotional_price": desired[8],
+        "coupon": desired[9], "offer_expires_at": "2026-08-31T21:00:00.123456-03:00",
+        "button_text": desired[12], "image_1": desired[14], "image_2": desired[15],
+        "image_3": desired[16], "image_4": desired[17], "order": desired[18],
+        "featured": desired[19],
+    })
+
+    assert plan_publication(snapshot, record, (existing,)) == ()
 
 
 @pytest.mark.parametrize("invalid_rows", [None, 3, "not rows", b"not rows", (_row(7), object())])

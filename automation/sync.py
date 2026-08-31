@@ -12,6 +12,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from hashlib import sha256
 import json
 from math import isfinite
+import re
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -31,6 +32,12 @@ from .security import normalize_url_for_signature, validate_https_url
 
 _YES = "sim"
 _PRODUCT_LAST_COLUMN = "T"
+_ISO_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", flags=re.ASCII)
+_ISO_TIMESTAMP = re.compile(
+    r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
+    r"(?:\.[0-9]{1,6})?(?:Z|[+-][0-9]{2}:[0-9]{2})",
+    flags=re.ASCII,
+)
 
 
 def calculate_discount(current: Decimal, previous: Decimal) -> int:
@@ -408,21 +415,19 @@ def _canonical_offer_expiry(value: Any) -> str | None:
     if not isinstance(value, str):
         raise InvalidProductDataError("A validade da oferta existente é inválida.")
     try:
-        if len(value) == 10:
+        if _ISO_DATE.fullmatch(value):
             day = date.fromisoformat(value)
-            if day.isoformat() != value:
-                raise ValueError
             point = datetime(day.year, day.month, day.day, tzinfo=UTC)
-        else:
-            if len(value) < 20 or value[10] != "T":
-                raise ValueError
+        elif _ISO_TIMESTAMP.fullmatch(value):
             parsed = value[:-1] + "+00:00" if value.endswith("Z") else value
             point = datetime.fromisoformat(parsed)
             if point.tzinfo is None or point.utcoffset() is None:
                 raise ValueError
-    except (TypeError, ValueError):
+        else:
+            raise ValueError
+        return point.astimezone(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
+    except (TypeError, ValueError, OverflowError):
         raise InvalidProductDataError("A validade da oferta existente é inválida.") from None
-    return point.astimezone(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
 def _validate_worksheet(worksheet: Any) -> None:
