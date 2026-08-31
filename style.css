@@ -945,6 +945,29 @@ main {
   font-weight: 900;
 }
 
+.coupon-offer {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.55rem;
+  margin-bottom: 1rem;
+}
+
+.coupon-badge {
+  padding: 0.26rem 0.55rem;
+  border-radius: 999px;
+  background: var(--brand-soft);
+  color: var(--brand-strong);
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.coupon-expiry {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
 .offer-link {
   width: 100%;
 }

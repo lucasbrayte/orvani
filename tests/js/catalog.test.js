@@ -86,6 +86,102 @@ test("normalizes custom buttons by whitespace and Unicode code points without in
   assert.equal(capped, "🙂".repeat(48));
 });
 
+test("uses the partner default button when the custom button is empty", () => {
+  const view = core.offerPresentation({ partner: "shopee", buttonText: "", coupon: null, couponExpiresAt: null });
+
+  assert.equal(view.buttonText, "Ver oferta na Shopee");
+});
+
+test("preserves normalized custom button copy as literal text", () => {
+  const view = core.offerPresentation({
+    partner: "amazon",
+    buttonText: "  <img src=x onerror=alert(1)>  ",
+    coupon: null,
+    couponExpiresAt: null,
+  });
+
+  assert.equal(view.buttonText, "<img src=x onerror=alert(1)>");
+});
+
+test("returns the exact safe external-link attributes from a normalized product", () => {
+  const attributes = core.externalLinkAttributes({
+    affiliateUrl: "https://shopee.com.br/product/1/1?affiliate=abc",
+    name: "Fone <teste>",
+    partner: "shopee",
+  });
+
+  assert.deepEqual(attributes, {
+    href: "https://shopee.com.br/product/1/1?affiliate=abc",
+    target: "_blank",
+    rel: "sponsored nofollow noopener noreferrer",
+    ariaLabel: "Ver oferta de Fone <teste> na Shopee",
+  });
+});
+
+test("assigns malicious-looking content to a fake node only as literal text", () => {
+  const node = { textContent: "antes" };
+  const result = core.setNodeText(node, "<img src=x onerror=alert(1)>");
+
+  assert.equal(result, node);
+  assert.equal(node.textContent, "<img src=x onerror=alert(1)>");
+  assert.equal(Object.hasOwn(node, "innerHTML"), false);
+});
+
+test("presents valid coupon code and localized expiry without mutating the product", () => {
+  const expiresAt = new Date(2026, 7, 31, 23, 59, 59, 999);
+  const product = {
+    partner: "amazon",
+    buttonText: "Comprar agora",
+    coupon: { code: " OFF10 ", expiresAt },
+    couponExpiresAt: expiresAt,
+    currentPrice: 80,
+    previousPrice: 100,
+  };
+  const snapshot = {
+    ...product,
+    coupon: { ...product.coupon },
+    couponExpiresAt: product.couponExpiresAt,
+  };
+
+  const view = core.offerPresentation(product, new Date(2026, 7, 30, 12));
+
+  assert.equal(view.buttonText, "Comprar agora");
+  assert.equal(view.couponCode, "OFF10");
+  assert.equal(view.couponExpiryText, "Válido até 31/08/2026");
+  assert.equal(view.discount, 20);
+  assert.deepEqual(product, snapshot);
+  assert.equal(product.coupon.expiresAt, expiresAt);
+});
+
+test("presents coupons without an expiry and suppresses invalid or expired stored coupons at render time", () => {
+  const now = new Date(2026, 7, 31, 12);
+  const noExpiry = core.offerPresentation({
+    partner: "amazon",
+    buttonText: "",
+    coupon: { code: "FRETE", expiresAt: null },
+    couponExpiresAt: null,
+  }, now);
+  const expired = core.offerPresentation({
+    partner: "amazon",
+    buttonText: "",
+    coupon: { code: "OFF10", expiresAt: new Date(2026, 7, 30, 23, 59, 59, 999) },
+    couponExpiresAt: new Date(2026, 7, 30, 23, 59, 59, 999),
+  }, now);
+  const invalid = core.offerPresentation({
+    partner: "amazon",
+    buttonText: "",
+    coupon: { code: "OFF10", expiresAt: new Date("invalid") },
+    couponExpiresAt: new Date("invalid"),
+  }, now);
+
+  assert.equal(noExpiry.couponCode, "FRETE");
+  assert.equal(noExpiry.couponExpiryText, null);
+  assert.equal(expired.couponCode, null);
+  assert.equal(expired.couponExpiryText, null);
+  assert.equal(invalid.couponCode, null);
+  assert.equal(invalid.couponExpiryText, null);
+});
+
 test("retains strict URL protections and names but does not authorize TikTok Shop broadly", () => {
   assert.equal(core.validatePartnerUrl("https://amazon.com.br.evil.example/item", "amazon"), null);
   assert.equal(core.validatePartnerUrl("http://amazon.com.br/item", "amazon"), null);

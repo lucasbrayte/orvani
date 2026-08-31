@@ -533,6 +533,43 @@ const CONFIG = {
     return Math.round(((previousPrice - currentPrice) / previousPrice) * 100);
   }
 
+  function setNodeText(node, value) {
+    node.textContent = value;
+    return node;
+  }
+
+  function externalLinkAttributes(product) {
+    const partner = partnerLabel(product.partner);
+    return Object.freeze({
+      href: product.affiliateUrl,
+      target: "_blank",
+      rel: "sponsored nofollow noopener noreferrer",
+      ariaLabel: `Ver oferta de ${product.name} na ${partner}`,
+    });
+  }
+
+  function offerPresentation(product, now = new Date()) {
+    const coupon = product?.coupon;
+    const couponCode = typeof coupon?.code === "string" ? coupon.code.trim() : "";
+    const expiresAt = coupon?.expiresAt ?? product?.couponExpiresAt ?? null;
+    const validExpiry = expiresAt === null || (
+      expiresAt instanceof Date &&
+      Number.isFinite(expiresAt.getTime()) &&
+      expiresAt.getTime() >= now.getTime()
+    );
+    const validCouponCode = couponCode !== "" && validExpiry ? couponCode : null;
+    const couponExpiryText = validCouponCode && expiresAt
+      ? `Válido até ${new Intl.DateTimeFormat("pt-BR").format(expiresAt)}`
+      : null;
+
+    return Object.freeze({
+      buttonText: normalizeButtonText(product?.buttonText) || `Ver oferta na ${partnerLabel(product?.partner)}`,
+      couponCode: validCouponCode,
+      couponExpiryText,
+      discount: calculateDiscount(product?.currentPrice, product?.previousPrice),
+    });
+  }
+
   // -----------------------------------------------------------------------
   // Busca e estado compartilhável do catálogo
   // -----------------------------------------------------------------------
@@ -661,6 +698,9 @@ const CONFIG = {
     sortProductsByOrder,
     stableSheetId,
     calculateDiscount,
+    setNodeText,
+    externalLinkAttributes,
+    offerPresentation,
     filterProducts,
     partnerLabel,
     typeLabel,
@@ -698,7 +738,7 @@ const CONFIG = {
     function element(tagName, className, text) {
       const node = document.createElement(tagName);
       if (className) node.className = className;
-      if (text !== undefined) node.textContent = text;
+      if (text !== undefined) setNodeText(node, text);
       return node;
     }
 
@@ -719,22 +759,31 @@ const CONFIG = {
     }
 
     function offerLink(product, className = "button button-primary offer-link") {
-      const link = element("a", className, `Ver oferta na ${partnerLabel(product.partner)}`);
-      link.href = product.affiliateUrl;
-      link.target = "_blank";
-      link.rel = "sponsored nofollow noopener noreferrer";
-      link.setAttribute("aria-label", `Ver oferta de ${product.name} na ${partnerLabel(product.partner)}`);
+      const view = offerPresentation(product);
+      const attributes = externalLinkAttributes(product);
+      const link = element("a", className, view.buttonText);
+      link.href = attributes.href;
+      link.target = attributes.target;
+      link.rel = attributes.rel;
+      link.setAttribute("aria-label", attributes.ariaLabel);
       return link;
     }
 
-    function priceBlock(product) {
+    function couponBlock(view) {
+      if (!view.couponCode) return null;
+      const coupon = element("div", "coupon-offer");
+      coupon.append(element("strong", "coupon-badge", `Cupom: ${view.couponCode}`));
+      if (view.couponExpiryText) coupon.append(element("span", "coupon-expiry", view.couponExpiryText));
+      return coupon;
+    }
+
+    function priceBlock(product, view = offerPresentation(product)) {
       const container = element("div", "price-block");
       const current = element("strong", "current-price", currencyFormatter.format(product.currentPrice));
-      const discount = calculateDiscount(product.currentPrice, product.previousPrice);
-      if (discount !== null) {
+      if (view.discount !== null) {
         const previous = element("del", "previous-price", currencyFormatter.format(product.previousPrice));
         previous.setAttribute("aria-label", `Preço anterior: ${currencyFormatter.format(product.previousPrice)}`);
-        const badge = element("span", "discount-badge", `-${discount}%`);
+        const badge = element("span", "discount-badge", `-${view.discount}%`);
         container.append(previous, current, badge);
       } else {
         container.append(current);
@@ -757,8 +806,12 @@ const CONFIG = {
       const title = element("h3", "product-title", product.name);
       const description = element("p", "product-description", product.shortDescription);
       const footer = element("div", "product-card-footer");
-      footer.append(priceBlock(product), offerLink(product));
-      body.append(meta, title, description, footer);
+      const view = offerPresentation(product);
+      footer.append(priceBlock(product, view), offerLink(product));
+      const coupon = couponBlock(view);
+      body.append(meta, title, description);
+      if (coupon) body.append(coupon);
+      body.append(footer);
       card.append(body);
       return card;
     }
@@ -770,13 +823,16 @@ const CONFIG = {
       slide.setAttribute("aria-roledescription", "slide");
       slide.setAttribute("aria-label", `${index + 1} de ${total}`);
       const content = element("div", "featured-content");
+      const view = offerPresentation(product);
+      const coupon = couponBlock(view);
       content.append(
         element("span", "featured-partner", partnerLabel(product.partner)),
         element("h3", "featured-title", product.name),
         element("p", "featured-description", product.shortDescription),
-        priceBlock(product),
-        offerLink(product),
+        priceBlock(product, view),
       );
+      if (coupon) content.append(coupon);
+      content.append(offerLink(product));
       slide.append(productImage(product, { eager: index === 0 }), content);
       return slide;
     }
