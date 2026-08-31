@@ -1,9 +1,10 @@
 """Contratos puros de mapeamento e adoção de Produtos."""
 
 from dataclasses import dataclass, replace
+from concurrent.futures import Future
 from datetime import UTC, datetime, timedelta, timezone, tzinfo
 from decimal import Decimal
-from threading import Event, Lock, Thread
+from threading import Event, Lock, Semaphore, Thread
 from uuid import RFC_4122, UUID
 
 import pytest
@@ -168,6 +169,7 @@ def test_sync_engine_publishes_an_approved_snapshot_without_name_error(mode, dry
 
 @pytest.mark.parametrize("checked,expected", [
     ("2026-08-30T11:30:00Z", True), ("2026-08-30T11:30:01Z", False),
+    ("2026-08-30T11:59:59", True), ("2026-08-30T11:00:00", True),
     ("", True), ("not-a-date", True), (46264.47, True),
 ])
 def test_processing_staleness_recovers_missing_invalid_serial_and_exact_boundary(checked, expected):
@@ -335,7 +337,7 @@ def test_sync_engine_rejects_non_boolean_dry_run_before_reading_sheets(dry_run):
 
 @pytest.mark.parametrize("column,value", [
     (1, True), (2, "Talvez"), (3, "talvez"), (4, -1), (5, "Manual"),
-    (15, "149.90"), (27, -1), (30, []),
+    (15, "149.90"), (25, "REVIEW"), (27, -1), (30, []),
 ])
 def test_sync_engine_aborts_before_fetch_for_malformed_import_scalar(column, value):
     """Catches coercing malformed operational cells into a fetchable record."""
@@ -434,7 +436,9 @@ def test_blank_id_and_terminal_error_are_combined_in_one_deterministic_full_row_
     assert dry_values == live_values
     generated = UUID(dry_values[0])
     assert generated.version == 4 and generated.variant == RFC_4122
-    assert dry_values[25:28] == (ImportStatus.ERRO.value, "Dados ou URL incompatíveis.", 0)
+    assert dry_values[25:28] == (
+        ImportStatus.ERRO.value, "URL incompatível com os parceiros autorizados.", 0,
+    )
 
 
 def test_two_approved_imports_for_one_external_identity_plan_one_product_row_write():
@@ -461,29 +465,29 @@ def test_two_approved_imports_for_one_external_identity_plan_one_product_row_wri
     assert [update.range_name for update in report.planned_product_updates] == ["'Produtos'!A2:T2"]
 
 
-@pytest.mark.parametrize("partner,external_id,existing_url,current_url", [
-    ("mercado_livre", "MLB1234567890", "https://www.mercadolivre.com.br/item/MLB1234567890", "https://meli.la/new-link"),
-    ("shopee", "123.456", "https://shopee.com.br/item-i.123.456", "https://s.shopee.com.br/new-link"),
-    ("shein", "123", "https://br.shein.com/product-p-123.html", "https://br.shein.com/new-link"),
-    ("tiktok_shop", "123", "https://shop.tiktok.test/product/123", "https://shop.tiktok.test/new-link"),
+@pytest.mark.parametrize("display_partner,snapshot_partner,external_id,existing_url,current_url", [
+    ("  Mercado Livre  ", "mercado_livre", "MLB1234567890", "https://www.mercadolivre.com.br/item/MLB1234567890", "https://meli.la/new-link"),
+    (" SHOPEE ", "shopee", "123.456", "https://shopee.com.br/item-i.123.456", "https://s.shopee.com.br/new-link"),
+    (" sheín ", "shein", "123", "https://br.shein.com/product-p-123.html", "https://br.shein.com/new-link"),
+    ("TikTok Shop", "tiktok_shop", "123", "https://shop.tiktok.test/product/123", "https://shop.tiktok.test/new-link"),
 ])
-def test_product_identity_reconstructed_from_partner_url_prevents_append(partner, external_id, existing_url, current_url):
+def test_product_identity_reconstructed_from_partner_alias_prevents_append(display_partner, snapshot_partner, external_id, existing_url, current_url):
     """Catches losing safely reconstructible existing identities during adoption."""
     from automation.sync import SyncEngine
 
     existing = _row(
         row_number=2,
-        partner=partner,
+        partner=display_partner,
         affiliate_url=existing_url,
         reconstructed_external_id=None,
     )
     record = _record(
         status=ImportStatus.NOVO, last_published_url="",
-        partner=partner, affiliate_url=current_url, external_id=external_id,
+        partner=snapshot_partner, affiliate_url=current_url, external_id=external_id,
     )
     registry = _OutcomeRegistry(
-        {record.affiliate_url: _snapshot(partner=partner, external_id=external_id)},
-        partner_for_url={record.affiliate_url: partner},
+        {record.affiliate_url: _snapshot(partner=snapshot_partner, external_id=external_id)},
+        partner_for_url={record.affiliate_url: snapshot_partner},
     )
 
     report = SyncEngine(_sync_gateway(records=(record,), products=(existing,)), registry).run(
@@ -491,6 +495,70 @@ def test_product_identity_reconstructed_from_partner_url_prevents_append(partner
     )
 
     assert report.planned_product_updates[0].range_name == "'Produtos'!A2:T2"
+
+
+def test_mercado_catalog_path_is_preserved_without_becoming_an_external_item_id():
+    """Catches passing a whole URL to the isolated catalog-ID helper or conflating IDs."""
+    from automation.sync import _reconstruct_product_identity
+
+    assert _reconstruct_product_identity(
+        "Mercado Livre", "https://www.mercadolivre.com.br/p/MLB1234"
+    ) == (None, "MLB1234")
+
+
+def test_catalog_id_is_not_a_match_key_for_distinct_external_items():
+    """Protects the ruling that catalog identity never merges separate listings."""
+    first = _row(
+        2, partner="Mercado Livre", reconstructed_external_id="MLB111111",
+        reconstructed_catalog_id="MLB1234",
+    )
+    second = _row(
+        3, partner="mercado_livre", reconstructed_external_id="MLB222222",
+        reconstructed_catalog_id="MLB1234", affiliate_url="https://meli.la/second",
+    )
+
+    assert find_product_match(
+        _record(last_published_url="", affiliate_url="", partner="mercado_livre", external_id="MLB222222"),
+        (first, second),
+    ) is second
+    assert find_product_match(
+        _record(last_published_url="", affiliate_url="", partner="mercado_livre", external_id="MLB333333"),
+        (first, second),
+    ) is None
+
+
+def test_same_catalog_different_external_ids_append_distinct_rows_and_preserve_catalogs():
+    """Catches working-state dedupe using catalog ID against the approved ruling."""
+    from automation.sync import SyncEngine
+
+    first = _record(status=ImportStatus.NOVO, affiliate_url="https://meli.la/first", external_id="MLB111111")
+    second = replace(first, automation_id="second", affiliate_url="https://meli.la/second", external_id="MLB222222")
+    registry = _OutcomeRegistry({
+        first.affiliate_url: _snapshot(external_id=first.external_id, catalog_id="MLB1234"),
+        second.affiliate_url: _snapshot(external_id=second.external_id, catalog_id="MLB1234"),
+    })
+
+    report = SyncEngine(_sync_gateway(records=(first, second)), registry).run("pending", dry_run=True)
+
+    assert [update.range_name for update in report.planned_product_updates] == [
+        "'Produtos'!A2:T2", "'Produtos'!A3:T3",
+    ]
+
+
+def test_working_product_row_preserves_catalog_without_matching_on_it():
+    """Catches loss of catalog metadata while keeping it out of adoption keys."""
+    from automation.sync import _apply_product_plan
+
+    record = _record(last_published_url="", affiliate_url="https://meli.la/new")
+    update, = plan_publication(_snapshot(catalog_id="MLB1234"), record, ())
+    rows = []
+
+    _apply_product_plan(rows, update, external_id="MLB111111", catalog_id="MLB1234")
+
+    assert rows[0].reconstructed_catalog_id == "MLB1234"
+    assert find_product_match(
+        replace(record, affiliate_url="", external_id="MLB222222"), rows
+    ) is None
 
 
 def test_sync_engine_preserves_all_old_images_when_output_has_none():
@@ -658,9 +726,60 @@ def test_incompatible_url_or_data_ends_error_with_sanitized_message(error):
     ).run("pending", dry_run=True)
 
     assert report.final_status(2) is ImportStatus.ERRO
-    assert report.items[0].message == "Dados ou URL incompatíveis."
     assert "secret" not in report.items[0].message
     assert report.planned_product_updates == ()
+
+
+@pytest.mark.parametrize("error,expected_message", [
+    (UnsupportedUrlError("raw SECRET URL"), "URL incompatível com os parceiros autorizados."),
+    (InvalidProductDataError("raw SECRET data"), "Dados públicos do produto são inválidos."),
+])
+def test_permanent_error_is_skipped_on_same_link_and_retried_after_normalized_change(error, expected_message):
+    """Catches a terminal ERRO polling forever or ignoring an actual link change."""
+    from automation.sync import SyncEngine, _signature_parts
+
+    record = _record(status=ImportStatus.NOVO, publish="Não")
+    first_registry = _OutcomeRegistry({record.affiliate_url: error})
+    first = SyncEngine(_sync_gateway(records=(record,)), first_registry).run("pending", dry_run=True)
+    signature_update = next(
+        update for update in first.planned_import_updates if update.range_name == "'Importações'!AD2:AE2"
+    )
+    persisted_signature = signature_update.values[0][0]
+    persisted = replace(
+        record, status=ImportStatus.ERRO, message=expected_message,
+        data_signature=persisted_signature,
+    )
+
+    same_registry = _OutcomeRegistry({})
+    same = SyncEngine(_sync_gateway(records=(persisted,)), same_registry).run("pending", dry_run=True)
+
+    changed = replace(persisted, affiliate_url="HTTPS://MELI.LA/changed?b=2&a=1#fragment")
+    changed_registry = _OutcomeRegistry({changed.affiliate_url: error})
+    changed_report = SyncEngine(
+        _sync_gateway(records=(changed,)), changed_registry
+    ).run("pending", dry_run=True)
+
+    old_link, error_hash = _signature_parts(persisted_signature)
+    assert old_link == link_signature(record.affiliate_url)
+    assert error_hash is not None
+    assert first.items[0].message == expected_message and "SECRET" not in first.items[0].message
+    assert same.items == () and same_registry.selected == []
+    assert changed_report.final_status(2) is ImportStatus.ERRO
+    assert changed_registry.selected == [changed.affiliate_url]
+
+
+@pytest.mark.parametrize("error", [UnsupportedUrlError("unsupported"), InvalidProductDataError("invalid")])
+def test_legacy_error_without_link_baseline_is_selected_once(error):
+    """Catches legacy ERRO rows becoming permanently unrefreshable."""
+    from automation.sync import SyncEngine
+
+    record = _record(status=ImportStatus.ERRO, data_signature="legacy", consecutive_attempts=0)
+    registry = _OutcomeRegistry({record.affiliate_url: error})
+
+    report = SyncEngine(_sync_gateway(records=(record,)), registry).run("pending", dry_run=True)
+
+    assert report.final_status(2) is ImportStatus.ERRO
+    assert registry.selected == [record.affiliate_url]
 
 
 def test_store_blocking_ends_attention_and_preserves_all_product_metadata_columns():
@@ -790,6 +909,96 @@ def test_blocked_update_mode_changes_only_operational_state_ranges():
     assert report.planned_product_updates == ()
 
 
+def test_blocked_only_live_run_has_one_terminal_import_batch_and_no_processing_checkpoint():
+    """Catches Bloqueado being durably marked PROCESSANDO before its terminal update."""
+    from automation.models import UpdateMode
+    from automation.sync import SyncEngine
+
+    record = _record(status=ImportStatus.PUBLICADO, update_mode=UpdateMode.BLOQUEADO)
+    sheets = _sync_gateway(records=(record,), products=(_row(2),))
+    registry = _OutcomeRegistry({})
+
+    report = SyncEngine(sheets, registry).run("full", dry_run=False)
+
+    assert report.final_status(2) is ImportStatus.PUBLICADO
+    assert registry.selected == [] and registry.fetched == []
+    assert len(sheets.value_writes) == 1
+    assert [item["range"] for item in sheets.value_writes[0]["data"]] == [
+        "'Importações'!Z2:AB2", "'Importações'!AE2:AE2",
+    ]
+
+
+def test_blocked_row_with_blank_id_still_writes_only_terminal_operational_ranges():
+    """Catches deterministic defaults widening a blocked row update to A:AF."""
+    from automation.models import UpdateMode
+    from automation.sync import SyncEngine, _record_values
+
+    raw = list(_record_values(_record(
+        automation_id="", status=ImportStatus.PUBLICADO,
+        update_mode=UpdateMode.BLOQUEADO,
+    )))
+    sheets = _sync_gateway(raw_imports=[raw])
+
+    report = SyncEngine(sheets, _OutcomeRegistry({})).run("full", dry_run=False)
+
+    assert report.final_status(2) is ImportStatus.PUBLICADO
+    assert [item["range"] for item in sheets.value_writes[0]["data"]] == [
+        "'Importações'!Z2:AB2", "'Importações'!AE2:AE2",
+    ]
+
+
+def test_mixed_blocked_and_fetch_run_checkpoints_only_fetchable_rows():
+    """Catches mixed runs including blocked rows in the PROCESSANDO checkpoint."""
+    from automation.models import UpdateMode
+    from automation.sync import SyncEngine
+
+    blocked = _record(
+        status=ImportStatus.PUBLICADO, update_mode=UpdateMode.BLOQUEADO,
+        affiliate_url="https://meli.la/blocked",
+    )
+    fetched = replace(
+        blocked, automation_id="fetched", update_mode=UpdateMode.AUTOMATICO,
+        affiliate_url="https://meli.la/fetched",
+    )
+    sheets = _sync_gateway(records=(blocked, fetched), products=(_row(2),))
+    registry = _OutcomeRegistry({fetched.affiliate_url: _snapshot()})
+
+    SyncEngine(sheets, registry).run("full", dry_run=False)
+
+    checkpoint_ranges = [item["range"] for item in sheets.value_writes[0]["data"]]
+    terminal_ranges = [item["range"] for item in sheets.value_writes[-1]["data"]]
+    assert checkpoint_ranges == ["'Importações'!Z3:AE3"]
+    assert registry.selected == [fetched.affiliate_url]
+    assert "'Importações'!Z2:AB2" in terminal_ranges
+    assert "'Importações'!AE2:AE2" in terminal_ranges
+
+
+def test_blocked_terminal_failure_is_sanitized_and_never_leaves_processing():
+    """Catches a blocked-only write failure persisting or exposing PROCESSANDO/secret detail."""
+    from conftest import FakeSheetsGateway
+    from automation.models import UpdateMode
+    from automation.sync import SyncEngine
+
+    class FailingTerminalGateway(FakeSheetsGateway):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.attempted_ranges = []
+
+        def batch_values_update(self, data, value_input_option):
+            self.attempted_ranges = [item["range"] for item in data]
+            raise RuntimeError("SECRET blocked terminal")
+
+    record = _record(status=ImportStatus.PUBLICADO, update_mode=UpdateMode.BLOQUEADO)
+    sheets = _sync_gateway(records=(record,), gateway_type=FailingTerminalGateway)
+
+    with pytest.raises(ConfigurationError) as raised:
+        SyncEngine(sheets, _OutcomeRegistry({})).run("full", dry_run=False)
+
+    assert "SECRET" not in str(raised.value)
+    assert raised.value.__cause__ is None and raised.value.__context__ is None
+    assert sheets.attempted_ranges == ["'Importações'!Z2:AB2", "'Importações'!AE2:AE2"]
+
+
 def test_live_publication_uses_checkpoint_product_terminal_phase_order_and_batch_limits():
     """Catches terminal PUBLICADO persistence before its durable product write."""
     from automation.sync import SyncEngine
@@ -855,16 +1064,18 @@ def test_checkpoint_failure_prevents_registry_and_connector_calls():
 
     class FailingCheckpointGateway(FakeSheetsGateway):
         def batch_values_update(self, data, value_input_option):
-            raise RuntimeError("checkpoint unavailable")
+            raise RuntimeError("SECRET checkpoint unavailable")
 
     record = _record(status=ImportStatus.NOVO)
     registry = _OutcomeRegistry({record.affiliate_url: _snapshot()})
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ConfigurationError) as raised:
         SyncEngine(
             _sync_gateway(records=(record,), gateway_type=FailingCheckpointGateway), registry
         ).run("pending", dry_run=False)
 
     assert registry.selected == [] and registry.fetched == []
+    assert "SECRET" not in str(raised.value)
+    assert raised.value.__cause__ is None and raised.value.__context__ is None
 
 
 @pytest.mark.parametrize("failed_phase,expected", [("Produtos", ["Importações", "Produtos"]), ("terminal", ["Importações", "Produtos", "Importações"])])
@@ -882,17 +1093,19 @@ def test_write_failure_never_advances_past_its_durable_phase(failed_phase, expec
             title = "Produtos" if data[0]["range"].startswith("'Produtos'!") else "Importações"
             self.phases.append(title)
             if title == failed_phase or (failed_phase == "terminal" and self.phases == expected):
-                raise RuntimeError("phase unavailable")
+                raise RuntimeError("SECRET phase unavailable")
             return super().batch_values_update(data, value_input_option)
 
     record = _record(status=ImportStatus.NOVO)
     sheets = _sync_gateway(records=(record,), gateway_type=PhaseGateway)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ConfigurationError) as raised:
         SyncEngine(sheets, _OutcomeRegistry({record.affiliate_url: _snapshot()})).run(
             "pending", dry_run=False
         )
 
     assert sheets.phases == expected
+    assert "SECRET" not in str(raised.value)
+    assert raised.value.__cause__ is None and raised.value.__context__ is None
 
 
 def test_unexpected_registry_failure_is_sanitized_as_temporary():
@@ -924,15 +1137,174 @@ def test_unexpected_connector_failure_is_sanitized_as_temporary():
     assert report.items[0].message == "Falha temporária na coleta."
 
 
-def test_same_partner_fetches_never_overlap():
-    """Catches simultaneous requests to one partner despite multiple workers."""
+def test_partner_key_getter_failure_becomes_per_row_sanitized_temporary_result():
+    """Catches a connector property exception escaping its worker boundary."""
     from automation.sync import SyncEngine
 
-    first_started, release_first, second_started = Event(), Event(), Event()
+    class Registry:
+        def select(self, _url):
+            class Connector:
+                @property
+                def partner_key(self):
+                    raise RuntimeError("SECRET partner getter")
+
+                def fetch(self, _url):
+                    raise AssertionError("fetch must not run")
+            return Connector()
+
+    record = _record(status=ImportStatus.NOVO)
+    report = SyncEngine(_sync_gateway(records=(record,)), Registry()).run("pending", dry_run=True)
+
+    assert report.final_status(2) is ImportStatus.NOVO
+    assert report.items[0].message == "Falha temporária na coleta."
+    assert "SECRET" not in report.items[0].message
+
+
+def test_unexpected_future_failure_does_not_erase_other_selected_results():
+    """Catches future.result exceptions aborting a multi-row report."""
+    from automation.sync import SyncEngine
+
+    class FutureFailureExecutor:
+        def __init__(self, **_kwargs):
+            self.calls = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def submit(self, function, *args):
+            self.calls += 1
+            future = Future()
+            if self.calls == 1:
+                future.set_exception(RuntimeError("SECRET worker future"))
+            else:
+                future.set_result(function(*args))
+            return future
+
+    first = _record(status=ImportStatus.NOVO, publish="Não", affiliate_url="https://meli.la/first")
+    second = replace(first, automation_id="second", affiliate_url="https://meli.la/second")
+    registry = _OutcomeRegistry({first.affiliate_url: _snapshot(), second.affiliate_url: _snapshot()})
+
+    report = SyncEngine(
+        _sync_gateway(records=(first, second)), registry,
+        executor_factory=FutureFailureExecutor,
+    ).run("pending", dry_run=True)
+
+    assert [item.row_number for item in report.items] == [2, 3]
+    assert [item.final_status for item in report.items] == [ImportStatus.NOVO, ImportStatus.REVISAR]
+    assert all("SECRET" not in item.message for item in report.items)
+
+
+def test_nonfinite_snapshot_becomes_one_error_without_aborting_other_rows():
+    """Catches malformed connector snapshots escaping validation or erasing the report."""
+    from automation.sync import SyncEngine
+
+    first = _record(status=ImportStatus.NOVO, publish="Sim", affiliate_url="https://meli.la/bad")
+    second = replace(first, automation_id="second", publish="Não", affiliate_url="https://meli.la/good")
+    registry = _OutcomeRegistry({
+        first.affiliate_url: _snapshot(current_price=Decimal("Infinity")),
+        second.affiliate_url: _snapshot(),
+    })
+
+    report = SyncEngine(_sync_gateway(records=(first, second)), registry).run("pending", dry_run=True)
+
+    assert [item.final_status for item in report.items] == [ImportStatus.ERRO, ImportStatus.REVISAR]
+    assert report.items[0].message == "Dados públicos do produto são inválidos."
+    assert report.planned_product_updates == ()
+
+
+@pytest.mark.parametrize("changes", [
+    {"source_url": "http://private.invalid/item"},
+    {"images": (object(),)},
+    {"previous_price": Decimal("Infinity")},
+    {"available": "yes"},
+    {"fetched_at": datetime(2026, 8, 31, 12)},
+])
+def test_malformed_snapshot_domain_images_and_types_become_sanitized_error(changes):
+    """Catches malformed snapshot boundaries reaching signature/publication planning."""
+    from automation.sync import SyncEngine
+
+    record = _record(status=ImportStatus.NOVO)
+    report = SyncEngine(
+        _sync_gateway(records=(record,)),
+        _OutcomeRegistry({record.affiliate_url: _snapshot(**changes)}),
+    ).run("pending", dry_run=True)
+
+    assert report.final_status(2) is ImportStatus.ERRO
+    assert report.items[0].message == "Dados públicos do produto são inválidos."
+    assert report.planned_product_updates == ()
+
+
+@pytest.mark.parametrize("failure", ["factory", "submit", "context"])
+def test_executor_lifecycle_failure_returns_complete_sanitized_ordered_report(failure):
+    """Catches executor setup/submission/teardown errors leaking or dropping rows."""
+    from automation.sync import SyncEngine
+
+    class LifecycleExecutor:
+        def __init__(self, **_kwargs):
+            if failure == "factory":
+                raise RuntimeError("SECRET executor factory")
+            self.calls = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            if failure == "context":
+                raise RuntimeError("SECRET executor context")
+            return False
+
+        def submit(self, function, *args):
+            self.calls += 1
+            if failure == "submit" and self.calls == 1:
+                raise RuntimeError("SECRET executor submit")
+            future = Future()
+            future.set_result(function(*args))
+            return future
+
+    first = _record(status=ImportStatus.NOVO, publish="Não", affiliate_url="https://meli.la/first")
+    second = replace(first, automation_id="second", affiliate_url="https://meli.la/second")
+    registry = _OutcomeRegistry({first.affiliate_url: _snapshot(), second.affiliate_url: _snapshot()})
+
+    report = SyncEngine(
+        _sync_gateway(records=(first, second)), registry,
+        executor_factory=LifecycleExecutor,
+    ).run("pending", dry_run=True)
+
+    assert [item.row_number for item in report.items] == [2, 3]
+    assert all("SECRET" not in item.message for item in report.items)
+    if failure == "factory":
+        assert [item.final_status for item in report.items] == [ImportStatus.NOVO, ImportStatus.NOVO]
+
+
+def test_same_partner_fetches_never_overlap():
+    """Catches simultaneous requests after both workers deterministically contend."""
+    from automation.sync import SyncEngine
+
+    first_started, second_attempted, release_first = Event(), Event(), Event()
     active = 0
     maximum = 0
     calls = 0
     guard = Lock()
+
+    class ProbeSemaphore:
+        def __init__(self, value):
+            self._gate = Semaphore(value)
+            self._attempts = 0
+            self._guard = Lock()
+
+        def __enter__(self):
+            with self._guard:
+                self._attempts += 1
+                if self._attempts == 2:
+                    second_attempted.set()
+            self._gate.acquire()
+            return self
+
+        def __exit__(self, *_args):
+            self._gate.release()
 
     def fetch_snapshot():
         nonlocal active, maximum, calls
@@ -943,9 +1315,8 @@ def test_same_partner_fetches_never_overlap():
             number = calls
         if number == 1:
             first_started.set()
-            release_first.wait(2)
-        else:
-            second_started.set()
+            assert second_attempted.wait(1)
+            assert release_first.wait(1)
         with guard:
             active -= 1
         return _snapshot()
@@ -954,10 +1325,16 @@ def test_same_partner_fetches_never_overlap():
     second = replace(first, automation_id="two", affiliate_url="https://meli.la/two")
     registry = _OutcomeRegistry({first.affiliate_url: fetch_snapshot, second.affiliate_url: fetch_snapshot})
     result = {}
-    runner = Thread(target=lambda: result.setdefault("report", SyncEngine(_sync_gateway(records=(first, second)), registry).run("pending", dry_run=True)))
+    runner = Thread(target=lambda: result.setdefault(
+        "report",
+        SyncEngine(
+            _sync_gateway(records=(first, second)), registry,
+            semaphore_factory=ProbeSemaphore,
+        ).run("pending", dry_run=True),
+    ))
     runner.start()
     assert first_started.wait(1)
-    assert not second_started.wait(0.05)
+    assert second_attempted.wait(1)
     release_first.set()
     runner.join(2)
 

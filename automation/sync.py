@@ -17,10 +17,12 @@ from math import isfinite
 import re
 from threading import Lock, Semaphore
 from typing import Any
+import unicodedata
 from urllib.parse import urlsplit
 from uuid import UUID
 
 from .config import (
+    CATALOG_CURRENCY,
     IMPORT_HEADERS,
     IMPORT_WORKSHEET,
     PARTNERS,
@@ -69,6 +71,10 @@ _ISO_TIMESTAMP = re.compile(
 )
 _PROCESSING_TIMEOUT = timedelta(minutes=30)
 _MAX_WORKERS = 4
+_PERMANENT_ERROR_MESSAGES = {
+    "unsupported_url": "URL incompatível com os parceiros autorizados.",
+    "invalid_product_data": "Dados públicos do produto são inválidos.",
+}
 
 
 def calculate_discount(current: Decimal, previous: Decimal) -> int:
@@ -186,13 +192,13 @@ def find_product_match(
         if match is not None:
             return match
 
-    partner = _identity_part(import_record.partner)
+    partner = _canonical_partner_key(import_record.partner)
     external_id = _identity_part(import_record.external_id)
     if not partner or not external_id:
         return None
     matches = tuple(
         row for row in rows
-        if _identity_part(row.partner) == partner
+        if _canonical_partner_key(row.partner) == partner
         and _identity_part(row.reconstructed_external_id) == external_id
     )
     return _unique_match(matches)
@@ -390,6 +396,21 @@ def _identity_part(value: Any) -> str:
     return _text_or_blank(value).casefold()
 
 
+def _canonical_partner_key(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    token = _partner_token(value)
+    for key, configuration in PARTNERS.items():
+        if token in {_partner_token(key), _partner_token(configuration.display_name)}:
+            return key
+    return ""
+
+
+def _partner_token(value: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", normalize_unicode_text(value).casefold())
+    return "".join(character for character in decomposed if character.isalnum() and not unicodedata.combining(character))
+
+
 def _validate_product_row_identities(rows: Sequence[ProductRow]) -> None:
     identities: set[int] = set()
     for row in rows:
@@ -491,6 +512,7 @@ class SyncEngine:
         *,
         clock: Callable[[], datetime] | None = None,
         executor_factory: Callable[..., Executor] = ThreadPoolExecutor,
+        semaphore_factory: Callable[[int], Any] = Semaphore,
         max_workers: int = _MAX_WORKERS,
         import_worksheet: str = IMPORT_WORKSHEET,
         products_worksheet: str = PRODUCTS_WORKSHEET,
@@ -501,6 +523,7 @@ class SyncEngine:
         self._registry = registry
         self._clock = clock or (lambda: datetime.now(UTC))
         self._executor_factory = executor_factory
+        self._semaphore_factory = semaphore_factory
         self._max_workers = max_workers
         self._imports = import_worksheet
         self._products = products_worksheet
@@ -514,31 +537,52 @@ class SyncEngine:
         records, default_rows = self._read_import_records()
         product_rows = _read_product_rows(self._gateway, self._products)
         selected = tuple(record for record in records if _is_selected(record, mode, now))
+        blocked_records = tuple(record for record in selected if record.update_mode is UpdateMode.BLOQUEADO)
+        fetch_records = tuple(record for record in selected if record.update_mode is not UpdateMode.BLOQUEADO)
         # This is the durable recovery checkpoint.  Product rows are already
         # fully validated above, so no malformed catalog data can leave a
-        # queue item PROCESSANDO.  A failed checkpoint prevents every fetch.
-        if selected and not dry_run:
-            checkpoint = tuple(_processing_update(record, now, self._imports) for record in selected)
-            batch_write(self._gateway, checkpoint, worksheet=self._imports, headers=IMPORT_HEADERS)
-        fetched = self._fetch_all(selected)
+        # fetchable queue item PROCESSANDO. Blocked rows go directly to their
+        # terminal operational update and never enter PROCESSANDO.
+        if fetch_records and not dry_run:
+            checkpoint = tuple(_processing_update(record, now, self._imports) for record in fetch_records)
+            _write_sync_batch(
+                self._gateway, checkpoint, worksheet=self._imports,
+                headers=IMPORT_HEADERS, phase="checkpoint",
+            )
+        fetched = {record.row_number: _BlockedMode() for record in blocked_records}
+        fetched.update(self._fetch_all(fetch_records))
 
-        import_updates: list[SheetUpdate] = list(default_rows)
+        blocked_row_numbers = {record.row_number for record in blocked_records}
+        import_updates: list[SheetUpdate] = [
+            update for update in default_rows
+            if _sheet_update_row(update) not in blocked_row_numbers
+        ]
         product_updates: list[SheetUpdate] = []
         results: list[SyncItemResult] = []
         working_products = list(product_rows)
         for record in selected:
             outcome = fetched[record.row_number]
-            item, changes, publication = self._plan_record(record, outcome, working_products, now)
+            try:
+                item, changes, publication = self._plan_record(record, outcome, working_products, now)
+                if publication:
+                    snapshot = outcome if isinstance(outcome, ProductSnapshot) else None
+                    _apply_product_plan(
+                        working_products, publication[0],
+                        external_id=snapshot.external_id if snapshot else record.external_id,
+                        catalog_id=snapshot.catalog_id if snapshot else None,
+                    )
+            except (InvalidProductDataError, UnsafeUrlError):
+                item, changes, publication = self._plan_record(
+                    record, InvalidProductDataError("Dados inválidos."), working_products, now
+                )
+            except Exception:
+                item, changes, publication = self._plan_record(
+                    record, TemporaryFetchError("Falha temporária."), working_products, now
+                )
             results.append(item)
             import_updates.extend(changes)
             if publication:
                 product_updates.extend(publication)
-                snapshot = outcome if isinstance(outcome, ProductSnapshot) else None
-                _apply_product_plan(
-                    working_products, publication[0],
-                    external_id=snapshot.external_id if snapshot else record.external_id,
-                    catalog_id=snapshot.catalog_id if snapshot else None,
-                )
 
         import_updates = _dedupe_import_updates(import_updates)
         product_updates = _dedupe_product_updates(product_updates)
@@ -553,9 +597,17 @@ class SyncEngine:
             # PUBLICADO in Importações, so a failed product write is never
             # falsely represented as a published item.
             if report.planned_product_updates:
-                batch_write(self._gateway, report.planned_product_updates, worksheet=self._products, headers=PRODUCTS_HEADERS)
+                _write_sync_batch(
+                    self._gateway, report.planned_product_updates,
+                    worksheet=self._products, headers=PRODUCTS_HEADERS,
+                    phase="products",
+                )
             if report.planned_import_updates:
-                batch_write(self._gateway, report.planned_import_updates, worksheet=self._imports, headers=IMPORT_HEADERS)
+                _write_sync_batch(
+                    self._gateway, report.planned_import_updates,
+                    worksheet=self._imports, headers=IMPORT_HEADERS,
+                    phase="terminal",
+                )
         return report
 
     def _read_import_records(self) -> tuple[tuple[ImportRecord, ...], tuple[SheetUpdate, ...]]:
@@ -595,9 +647,6 @@ class SyncEngine:
         selected_connectors: list[tuple[ImportRecord, Any]] = []
         output: dict[int, object] = {}
         for record in records:
-            if record.update_mode is UpdateMode.BLOQUEADO:
-                output[record.row_number] = _BlockedMode()
-                continue
             try:
                 selected_connectors.append((record, self._registry.select(_fetch_url(record))))
             except (UnsupportedUrlError, InvalidProductDataError) as error:
@@ -606,33 +655,48 @@ class SyncEngine:
                 output[record.row_number] = TemporaryFetchError("Falha temporária na seleção.")
 
         def fetch(record: ImportRecord, connector: Any) -> object:
-            url = _fetch_url(record)
-            hostname = str(getattr(connector, "partner_key", "") or _hostname(url))
-            with locks_guard:
-                gate = locks.setdefault(hostname, Semaphore(1))
-            with gate:
-                try:
+            try:
+                url = _fetch_url(record)
+                partner_key = getattr(connector, "partner_key", "")
+                gate_key = _canonical_partner_key(partner_key) or _hostname(url)
+                with locks_guard:
+                    gate = locks.get(gate_key)
+                    if gate is None:
+                        gate = self._semaphore_factory(1)
+                        locks[gate_key] = gate
+                with gate:
                     if _is_common_shopee(record, connector):
                         return _ShopeeConversion()
                     snapshot = connector.fetch(url)
-                    if not isinstance(snapshot, ProductSnapshot):
-                        raise InvalidProductDataError("O conector retornou um produto inválido.")
-                    return snapshot
-                except (UnsupportedUrlError, ProductNotFoundError, TemporaryFetchError, BlockedByStoreError, InvalidProductDataError) as error:
-                    return error
-                except Exception:
-                    # Connector details may include raw URLs, headers or store
-                    # messages, so never propagate them into the spreadsheet.
-                    return TemporaryFetchError("Falha temporária na coleta.")
+                    return _validated_connector_snapshot(snapshot, expected_affiliate_url=url)
+            except (UnsupportedUrlError, ProductNotFoundError, TemporaryFetchError, BlockedByStoreError, InvalidProductDataError) as error:
+                return error
+            except Exception:
+                # Connector details may include raw URLs, headers or store
+                # messages, so never propagate them into the spreadsheet.
+                return TemporaryFetchError("Falha temporária na coleta.")
 
         if not selected_connectors:
             return output
         futures: dict[Future[object], int] = {}
-        with self._executor_factory(max_workers=self._max_workers) as executor:
-            for record, connector in selected_connectors:
-                futures[executor.submit(fetch, record, connector)] = record.row_number
-            for future, row_number in futures.items():
-                output[row_number] = future.result()
+        try:
+            with self._executor_factory(max_workers=self._max_workers) as executor:
+                for record, connector in selected_connectors:
+                    try:
+                        future = executor.submit(fetch, record, connector)
+                        futures[future] = record.row_number
+                    except Exception:
+                        output[record.row_number] = TemporaryFetchError("Falha temporária na coleta.")
+                        continue
+                for future, row_number in futures.items():
+                    try:
+                        output[row_number] = future.result()
+                    except Exception:
+                        output[row_number] = TemporaryFetchError("Falha temporária na coleta.")
+        except Exception:
+            pass
+        for record, _connector in selected_connectors:
+            output.setdefault(record.row_number, TemporaryFetchError("Falha temporária na coleta."))
         return output
 
     def _plan_record(
@@ -666,8 +730,14 @@ class SyncEngine:
             changes = _state_updates(target, now, worksheet=self._imports)
             return _result(record, target, bool(changes), False), changes, ()
         if isinstance(outcome, (UnsupportedUrlError, InvalidProductDataError)):
-            target = replace(record, status=ImportStatus.ERRO, message="Dados ou URL incompatíveis.", consecutive_attempts=0)
-            changes = _state_updates(target, now, worksheet=self._imports)
+            category = "unsupported_url" if isinstance(outcome, UnsupportedUrlError) else "invalid_product_data"
+            error_hash = _permanent_error_hash(category)
+            target = replace(
+                record, status=ImportStatus.ERRO,
+                message=_PERMANENT_ERROR_MESSAGES[category], consecutive_attempts=0,
+                data_signature=_signature_envelope(record, error_hash),
+            )
+            changes = _permanent_error_updates(target, now, worksheet=self._imports)
             return _result(record, target, bool(changes), False), changes, ()
         if not isinstance(outcome, ProductSnapshot):
             target = replace(record, status=ImportStatus.ATENCAO, message="Falha temporária na coleta.", consecutive_attempts=record.consecutive_attempts + 1)
@@ -736,8 +806,14 @@ def _is_selected(record: ImportRecord, mode: str, now: datetime) -> bool:
         return stale
     if record.status is ImportStatus.NOVO or stale:
         return True
-    if record.status in {ImportStatus.ATENCAO, ImportStatus.ERRO}:
+    if record.status is ImportStatus.ATENCAO:
         return record.consecutive_attempts < 3
+    if record.status is ImportStatus.ERRO:
+        old_link, old_data = _signature_parts(record.data_signature)
+        return (
+            old_link != _record_link_hash(record)
+            or old_data not in {_permanent_error_hash(category) for category in _PERMANENT_ERROR_MESSAGES}
+        )
     if record.status is ImportStatus.AGUARDANDO_CONVERSAO:
         return bool(record.affiliate_url.strip())
     if record.status in {ImportStatus.REVISAR, ImportStatus.PRONTO_PARA_PUBLICAR}:
@@ -760,7 +836,7 @@ def _is_stale(value: Any, now: datetime) -> bool:
         text = value[:-1] + "+00:00" if value.endswith("Z") else value
         instant = datetime.fromisoformat(text)
         if instant.tzinfo is None or instant.utcoffset() is None:
-            return False
+            return True
         return now - instant.astimezone(UTC) >= _PROCESSING_TIMEOUT
     except (AttributeError, TypeError, ValueError, OverflowError):
         return True
@@ -779,7 +855,8 @@ def _hostname(url: str) -> str:
 
 def _is_common_shopee(record: ImportRecord, connector: Any) -> bool:
     return not record.affiliate_url.strip() and (
-        record.partner.strip().casefold() == "shopee" or getattr(connector, "partner_key", "") == "shopee"
+        _canonical_partner_key(record.partner) == "shopee"
+        or _canonical_partner_key(getattr(connector, "partner_key", "")) == "shopee"
     )
 
 
@@ -812,6 +889,53 @@ def _merge_snapshot(record: ImportRecord, snapshot: ProductSnapshot) -> tuple[Pr
     return merged, partial_images
 
 
+def _validated_connector_snapshot(value: Any, *, expected_affiliate_url: str) -> ProductSnapshot:
+    if not isinstance(value, ProductSnapshot):
+        raise InvalidProductDataError("O conector retornou um produto inválido.")
+    partner = _canonical_partner_key(value.partner)
+    if not partner or not isinstance(value.external_id, str) or not value.external_id.strip():
+        raise InvalidProductDataError("O conector retornou uma identidade inválida.")
+    if value.catalog_id is not None and (not isinstance(value.catalog_id, str) or not value.catalog_id.strip()):
+        raise InvalidProductDataError("O conector retornou um catálogo inválido.")
+    if value.affiliate_url != expected_affiliate_url or _normalized_link_or_none(value.affiliate_url) is None:
+        raise InvalidProductDataError("O conector não preservou o link afiliado.")
+    if _normalized_link_or_none(value.source_url) is None:
+        raise InvalidProductDataError("O conector retornou uma origem inválida.")
+    for field in (value.name, value.description, value.currency, value.category, value.subcategory, value.product_type):
+        if not isinstance(field, str):
+            raise InvalidProductDataError("O conector retornou texto inválido.")
+    if not value.name.strip() or not value.currency.strip() or value.currency.strip().upper() != CATALOG_CURRENCY:
+        raise InvalidProductDataError("O conector retornou campos obrigatórios inválidos.")
+    _valid_price(value.current_price)
+    if value.previous_price is not None:
+        _valid_price(value.previous_price)
+        if value.previous_price <= value.current_price:
+            raise InvalidProductDataError("O conector retornou uma promoção inválida.")
+    if value.coupon is not None and not isinstance(value.coupon, str):
+        raise InvalidProductDataError("O conector retornou um cupom inválido.")
+    if value.coupon_expires_at is not None:
+        _canonical_offer_expiry(value.coupon_expires_at)
+    if not isinstance(value.images, tuple) or len(value.images) > 4 or not all(isinstance(image, str) for image in value.images):
+        raise InvalidProductDataError("O conector retornou imagens inválidas.")
+    if value.available is not None and not isinstance(value.available, bool):
+        raise InvalidProductDataError("O conector retornou disponibilidade inválida.")
+    if not isinstance(value.fetched_at, datetime):
+        raise InvalidProductDataError("O conector retornou um instante inválido.")
+    try:
+        if value.fetched_at.tzinfo is None or value.fetched_at.utcoffset() is None:
+            raise ValueError
+        value.fetched_at.astimezone(UTC)
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        raise InvalidProductDataError("O conector retornou um instante inválido.") from None
+    return replace(
+        value,
+        partner=partner,
+        external_id=value.external_id.strip(),
+        catalog_id=value.catalog_id.strip() if value.catalog_id is not None else None,
+        currency=value.currency.strip().upper(),
+    )
+
+
 def _snapshot_signature(snapshot: ProductSnapshot) -> str:
     return data_signature({
         "partner": snapshot.partner, "external_id": snapshot.external_id, "catalog_id": snapshot.catalog_id,
@@ -834,7 +958,21 @@ def _signature_parts(value: Any) -> tuple[str | None, str | None]:
 
 
 def _signature_envelope(record: ImportRecord, data_hash: str) -> str:
-    return f"v1:{link_signature(_fetch_url(record))}:{data_hash}"
+    return f"v1:{_record_link_hash(record)}:{data_hash}"
+
+
+def _record_link_hash(record: ImportRecord) -> str:
+    value = _fetch_url(record)
+    try:
+        return link_signature(value)
+    except UnsafeUrlError:
+        return sha256(("invalid-link-v1\x00" + value).encode("utf-8")).hexdigest()
+
+
+def _permanent_error_hash(category: str) -> str:
+    if category not in _PERMANENT_ERROR_MESSAGES:
+        raise InvalidProductDataError("A categoria de erro permanente é inválida.")
+    return sha256(("permanent-error-v1\x00" + category).encode("ascii")).hexdigest()
 
 
 def _record_from_snapshot(record: ImportRecord, snapshot: ProductSnapshot, signature: str, *, status: ImportStatus, message: str) -> ImportRecord:
@@ -883,6 +1021,39 @@ def _state_updates(record: ImportRecord, now: datetime, *, worksheet: str = IMPO
         SheetUpdate(_import_range(record.row_number, "Z", "AB", worksheet), ((record.status.value, record.message, record.consecutive_attempts),)),
         SheetUpdate(_import_range(record.row_number, "AE", "AE", worksheet), ((now,),)),
     )
+
+
+def _permanent_error_updates(record: ImportRecord, now: datetime, *, worksheet: str = IMPORT_WORKSHEET) -> tuple[SheetUpdate, ...]:
+    return (
+        SheetUpdate(_import_range(record.row_number, "Z", "AB", worksheet), ((record.status.value, record.message, record.consecutive_attempts),)),
+        SheetUpdate(_import_range(record.row_number, "AD", "AE", worksheet), ((record.data_signature, now),)),
+    )
+
+
+def _write_sync_batch(
+    gateway: SheetsGateway,
+    updates: Sequence[SheetUpdate],
+    *,
+    worksheet: str,
+    headers: Sequence[str],
+    phase: str,
+) -> None:
+    messages = {
+        "checkpoint": "Não foi possível persistir o checkpoint da sincronização.",
+        "products": "Não foi possível persistir os produtos planejados.",
+        "terminal": "Não foi possível persistir o resultado da sincronização.",
+    }
+    if phase not in messages:
+        raise ConfigurationError("A fase de escrita da sincronização é inválida.")
+    failure: Exception | None = None
+    try:
+        batch_write(gateway, updates, worksheet=worksheet, headers=headers)
+    except SheetSchemaError:
+        failure = SheetSchemaError(messages[phase])
+    except Exception:
+        failure = ConfigurationError(messages[phase])
+    if failure is not None:
+        raise failure
 
 
 def _import_range(row: int, first: str, last: str, worksheet: str = IMPORT_WORKSHEET) -> str:
@@ -1123,14 +1294,31 @@ def _product_expiry(value: Any) -> str | datetime:
 
 def _reconstruct_product_identity(partner: str, affiliate_url: str) -> tuple[str | None, str | None]:
     try:
-        key = partner.strip().casefold()
+        key = _canonical_partner_key(partner)
         if key == "mercado_livre":
-            return extract_mercado_item_id(affiliate_url), extract_mercado_catalog_id(affiliate_url)
+            catalog_id = _mercado_catalog_id_from_url(affiliate_url)
+            return (None if catalog_id else extract_mercado_item_id(affiliate_url)), catalog_id
         helpers = {"shopee": extract_shopee_item_id, "shein": extract_shein_product_id, "tiktok_shop": extract_tiktok_shop_product_id}
         helper = helpers.get(key)
         return (helper(affiliate_url), None) if helper else (None, None)
     except Exception:
         return None, None
+
+
+def _mercado_catalog_id_from_url(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parts = tuple(part for part in urlsplit(value).path.split("/") if part)
+    except ValueError:
+        return None
+    for index, part in enumerate(parts):
+        if index == 0 or parts[index - 1].casefold() != "p":
+            continue
+        catalog_id = extract_mercado_catalog_id(part)
+        if catalog_id is not None:
+            return catalog_id
+    return None
 
 
 def _apply_product_plan(rows: list[ProductRow], update: SheetUpdate, *, external_id: str | None = None, catalog_id: str | None = None) -> None:
