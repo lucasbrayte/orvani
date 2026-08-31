@@ -9,12 +9,12 @@ from dataclasses import dataclass, field
 import sys
 from typing import Any, Protocol
 
-from .config import IMPORT_HEADERS, PARTNERS, PRODUCTS_HEADERS, PartnerConfig, Settings
+from .config import IMPORT_HEADERS, PARTNERS, PRODUCTS_HEADERS, PartnerConfig, Settings, normalize_unicode_text
 from .connectors.base import build_connector_registry
 from .http_client import SafeHttpClient
-from .models import ConfigurationError, ImportStatus, SheetSchemaError, UpdateMode
+from .models import AmbiguousProductMatchError, ConfigurationError, ImportRecord, ImportStatus, SheetSchemaError
 from .sheets import GoogleSheetsGateway, SheetsGateway, read_table, setup_import_sheet
-from .sync import SyncEngine
+from .sync import SyncEngine, find_product_match, parse_product_rows, validate_import_row
 
 
 class _SettingsLike(Protocol):
@@ -111,6 +111,7 @@ def main(argv: Sequence[str] | None = None, cli_dependencies: CliDependencies | 
 
 def _production_dependencies() -> CliDependencies:
     settings = Settings.from_env()
+    _validate_credentials(settings.service_account_info)
     gateway = GoogleSheetsGateway.from_settings(settings)
     return CliDependencies(
         settings=settings,
@@ -122,7 +123,7 @@ def _production_dependencies() -> CliDependencies:
 def _validate_credentials(value: object) -> None:
     if not isinstance(value, Mapping):
         raise ConfigurationError("Credenciais inválidas.")
-    required = ("type", "client_email", "private_key")
+    required = ("type", "client_email", "private_key", "token_uri")
     if (
         value.get("type") != "service_account"
         or any(not isinstance(value.get(key), str) or not value[key].strip() for key in required[1:])
@@ -134,18 +135,10 @@ def _validate_partners(partners: Mapping[str, PartnerConfig]) -> int:
     expected = set(PARTNERS)
     if not isinstance(partners, Mapping) or set(partners) != expected:
         raise SheetSchemaError("Parceiros configurados são inválidos.")
-    for key, partner in partners.items():
-        if not isinstance(partner, PartnerConfig) or partner.key != key or not partner.display_name.strip():
+    for key, approved in PARTNERS.items():
+        partner = partners[key]
+        if not isinstance(partner, PartnerConfig) or partner != approved:
             raise SheetSchemaError("Parceiros configurados são inválidos.")
-        if key == "tiktok_shop":
-            if partner.allowed_hosts:
-                raise SheetSchemaError("Hosts TikTok Shop são inválidos.")
-            continue
-        if not partner.allowed_hosts or any(
-            not isinstance(host, str) or not host or ":" in host or "/" in host or host != host.lower()
-            for host in partner.allowed_hosts
-        ):
-            raise SheetSchemaError("Hosts de parceiro são inválidos.")
     return _tiktok_limitation(partners)
 
 
@@ -169,26 +162,36 @@ def _validate_worksheet_access(metadata: object, settings: _SettingsLike) -> Non
 def _validate_rows(imports: Sequence[tuple[Any, ...]], products: Sequence[tuple[Any, ...]]) -> int:
     failures = 0
     ids: set[str] = set()
-    published_links: list[str] = []
-    for row in imports:
+    records: list[ImportRecord] = []
+    for row_number, row in enumerate(imports, start=2):
+        try:
+            validate_import_row(row)
+        except SheetSchemaError:
+            failures += 1
+            continue
         cells = tuple(row) + ("",) * (len(IMPORT_HEADERS) - len(row))
-        automation_id = cells[0] if isinstance(cells[0], str) else ""
+        automation_id = normalize_unicode_text(cells[0]) if isinstance(cells[0], str) else ""
         if not automation_id or automation_id in ids:
             failures += 1
         ids.add(automation_id)
-        if cells[5] not in ("", *(mode.value for mode in UpdateMode)):
-            failures += 1
-        if cells[25] not in ("", *(status.value for status in ImportStatus)):
-            failures += 1
         if cells[25] == ImportStatus.PUBLICADO.value:
-            required = (1, 6, 7, 8, 9, 10, 15, 20)
+            required = (1, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 20)
             if any(cells[index] in (None, "") for index in required):
                 failures += 1
-            link = cells[28] or cells[7]
-            if isinstance(link, str) and link:
-                published_links.append(link)
-    product_links = [row[11] for row in products if len(row) > 11 and isinstance(row[11], str) and row[11]]
-    failures += sum(product_links.count(link) > 1 for link in set(published_links))
+        try:
+            record, _ = ImportRecord.from_sheet_row(row_number, cells)
+        except (ArithmeticError, TypeError, ValueError):
+            failures += 1
+        else:
+            records.append(record)
+    product_rows = parse_product_rows(products)
+    for record in records:
+        if record.publish != "Sim":
+            continue
+        try:
+            find_product_match(record, product_rows)
+        except AmbiguousProductMatchError:
+            failures += 1
     return failures
 
 

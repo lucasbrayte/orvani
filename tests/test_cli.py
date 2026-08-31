@@ -24,7 +24,7 @@ class _Settings:
 
     def __post_init__(self):
         if self.service_account_info is None:
-            object.__setattr__(self, "service_account_info", {"type": "service_account", "client_email": "bot@example.invalid", "private_key": "key"})
+            object.__setattr__(self, "service_account_info", {"type": "service_account", "client_email": "bot@example.invalid", "private_key": "key", "token_uri": "https://oauth2.googleapis.com/token"})
 
 
 class _Registry:
@@ -98,6 +98,18 @@ def test_required_commands_parse(argv):
     from automation.cli import build_parser
 
     assert build_parser().parse_args(argv).command == argv[0]
+
+
+@pytest.mark.parametrize("argv", [
+    ["unknown-command"],
+    ["sync", "--mode", "unknown-mode"],
+    ["validate", "unexpected"],
+])
+def test_main_returns_parser_rejection_code(cli_dependencies, argv):
+    """Catches parser failures escaping main instead of returning their process code."""
+    from automation.cli import main
+
+    assert main(argv, cli_dependencies) == 2
 
 
 def test_setup_dry_run_never_writes(cli_dependencies):
@@ -187,6 +199,24 @@ def test_validate_rejects_malformed_credential_structure(cli_dependencies, capsy
     assert "cli-secret" not in capsys.readouterr().err
 
 
+def test_validate_requires_token_uri_before_any_gateway_access(cli_dependencies):
+    """Catches a fake-only credential shape that Google service-account loading rejects."""
+    from automation.cli import main
+
+    settings = _Settings(service_account_info={"type": "service_account", "client_email": "bot@example.invalid", "private_key": "key"})
+    dependencies = replace(cli_dependencies, settings=settings)
+    assert main(["validate"], dependencies) == 2
+    assert dependencies.gateway.spreadsheet_reads == 0 and dependencies.gateway.value_reads == []
+
+
+def test_validate_accepts_the_minimum_side_effect_free_credential_shape(cli_dependencies):
+    """Catches validation requiring credential construction or fields beyond the minimum gate."""
+    from automation.cli import main
+
+    settings = _Settings(service_account_info={"type": "service_account", "client_email": "bot@example.invalid", "private_key": "key", "token_uri": "https://oauth2.googleapis.com/token"})
+    assert main(["validate"], replace(cli_dependencies, settings=settings)) == 0
+
+
 def test_validate_rejects_incorrect_header_contract(cli_dependencies):
     """Catches validation treating a present but wrong header row as usable."""
     from automation.cli import main
@@ -194,6 +224,57 @@ def test_validate_rejects_incorrect_header_contract(cli_dependencies):
     gateway = _gateway()
     gateway._values["'Importações'!A1:AF"] = [["wrong header"]]
     assert main(["validate"], replace(cli_dependencies, gateway=gateway)) == 1
+
+
+@pytest.mark.parametrize("column,value", [(1, "Talvez"), (2, "Talvez"), (3, "Talvez"), (4, "-1"), (15, "zero")])
+def test_validate_rejects_every_import_enum_and_scalar_sync_rejects(cli_dependencies, column, value):
+    """Catches validation accepting a scalar rejected before sync can safely plan."""
+    from automation.cli import main
+
+    row = _record()
+    row[column] = value
+    assert main(["validate"], replace(cli_dependencies, gateway=_gateway([row]))) == 1
+
+
+def test_validate_normalizes_automation_ids_before_duplicate_detection(cli_dependencies):
+    """Catches duplicate automation IDs differing only in harmless spacing."""
+    from automation.cli import main
+
+    assert main(["validate"], replace(cli_dependencies, gateway=_gateway([_record(), _record(automation_id=" auto-1 ")]))) == 1
+
+
+@pytest.mark.parametrize("column", [1, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 20])
+def test_validate_requires_every_published_product_input(cli_dependencies, column):
+    """Catches a published row missing a field required to map a product."""
+    from automation.cli import main
+
+    row = _record(status="PUBLICADO", publish="Sim")
+    row[column] = ""
+    assert main(["validate"], replace(cli_dependencies, gateway=_gateway([row]))) == 1
+
+
+def test_validate_rejects_ambiguous_products_by_normalized_last_published_link(cli_dependencies):
+    """Catches ambiguity hidden by reordered query parameters on the published link."""
+    from automation.cli import main
+
+    row = _record(status="PRONTO PARA PUBLICAR", publish="Sim")
+    row[28] = "https://meli.la/item?a=1&b=2"
+    products = [_product(affiliate_url="https://meli.la/item?b=2&a=1"), _product(affiliate_url="https://meli.la/item?b=2&a=1")]
+    assert main(["validate"], replace(cli_dependencies, gateway=_gateway([row], products))) == 1
+
+
+def test_validate_rejects_ambiguous_products_by_partner_external_id(cli_dependencies):
+    """Catches ambiguity falling through to the canonical partner/external-ID tier."""
+    from automation.cli import main
+
+    row = _record(status="PRONTO PARA PUBLICAR", publish="Sim")
+    row[7] = "https://meli.la/no-match"
+    row[9] = "MLB123456"
+    products = [
+        _product(affiliate_url="https://www.mercadolivre.com.br/item/MLB123456?a=1"),
+        _product(affiliate_url="https://www.mercadolivre.com.br/item/MLB123456?a=2"),
+    ]
+    assert main(["validate"], replace(cli_dependencies, gateway=_gateway([row], products))) == 1
 
 
 def test_schema_or_access_error_returns_operational_exit_without_raw_exception(cli_dependencies, capsys):
@@ -205,7 +286,8 @@ def test_schema_or_access_error_returns_operational_exit_without_raw_exception(c
             raise RuntimeError("https://private.invalid/?token=secret")
 
     assert main(["validate"], replace(cli_dependencies, gateway=FailingGateway())) == 1
-    output = capsys.readouterr().out + capsys.readouterr().err
+    captured = capsys.readouterr()
+    output = captured.out + captured.err
     assert "private.invalid" not in output and "secret" not in output and "Traceback" not in output
 
 
@@ -222,7 +304,8 @@ def test_validate_rejects_invalid_operational_data(cli_dependencies, capsys, mut
     rows, products = [_record()], []
     mutator(rows, products)
     assert main(["validate"], replace(cli_dependencies, gateway=_gateway(rows, products))) == 1
-    output = capsys.readouterr().out + capsys.readouterr().err
+    captured = capsys.readouterr()
+    output = captured.out + captured.err
     assert "Produto" not in output and "https://meli.la/item" not in output
 
 
@@ -247,4 +330,17 @@ def test_validate_reports_partner_rules_and_tiktok_limitation(cli_dependencies, 
 
     partners = dict(PARTNERS)
     partners["shopee"] = PartnerConfig("shopee", "Shopee", (), True)
+    assert main(["validate"], replace(cli_dependencies, partners=partners)) == 1
+
+
+@pytest.mark.parametrize("partner", [
+    PartnerConfig("shopee", "Shopee", ("unconfirmed.example",), True),
+    PartnerConfig("shopee", "Shopee", PARTNERS["shopee"].allowed_hosts, False),
+])
+def test_validate_rejects_well_formed_but_unauthorized_partner_config(cli_dependencies, partner):
+    """Catches host or verification-policy substitutions that look syntactically safe."""
+    from automation.cli import main
+
+    partners = dict(PARTNERS)
+    partners["shopee"] = partner
     assert main(["validate"], replace(cli_dependencies, partners=partners)) == 1

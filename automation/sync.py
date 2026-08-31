@@ -619,7 +619,7 @@ class SyncEngine:
         defaults: list[SheetUpdate] = []
         for offset, row in enumerate(rows, start=2):
             # Preserve physical sheet identity even for entirely blank lines.
-            _validate_import_row(row)
+            validate_import_row(row)
             normalized = list(row) + [""] * (len(IMPORT_HEADERS) - len(row))
             default = _deterministic_import_defaults(self._imports, offset, row)
             if default is not None:
@@ -1126,6 +1126,11 @@ def _sheet_update_row(update: SheetUpdate) -> int:
 
 def _read_product_rows(gateway: SheetsGateway, worksheet: str) -> tuple[ProductRow, ...]:
     raw = read_table(gateway, worksheet, headers=PRODUCTS_HEADERS)
+    return parse_product_rows(raw)
+
+
+def parse_product_rows(raw: Sequence[tuple[Any, ...]]) -> tuple[ProductRow, ...]:
+    """Parse current Produtos rows using the same contract as synchronization."""
     output: list[ProductRow] = []
     for row_number, row in enumerate(raw, start=2):
         if not isinstance(row, tuple):
@@ -1145,7 +1150,7 @@ def _read_product_rows(gateway: SheetsGateway, worksheet: str) -> tuple[ProductR
     return tuple(output)
 
 
-def _validate_import_row(row: Sequence[Any]) -> None:
+def validate_import_row(row: Sequence[Any]) -> None:
     """Reject malformed unformatted Sheets scalars before any durable write."""
     if not isinstance(row, tuple) or len(row) > len(IMPORT_HEADERS):
         raise SheetSchemaError("Uma linha de Importações é inválida.")
