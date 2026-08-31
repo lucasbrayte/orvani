@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import re
 import socket
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from urllib.parse import urljoin, urlsplit
 
@@ -27,7 +29,7 @@ from .models import (
     UnsafeRedirectError,
     UnsafeUrlError,
 )
-from .security import resolve_public_addresses, validate_https_url
+from .security import is_allowed_host, resolve_public_addresses, validate_https_url
 
 
 _REDIRECT_STATUS_CODES = {301, 302, 303, 307, 308}
@@ -41,6 +43,15 @@ _REQUEST_TIMEOUT = httpx.Timeout(
     write=READ_TIMEOUT_SECONDS,
     pool=CONNECT_TIMEOUT_SECONDS,
 )
+_RedirectHostPolicy = Callable[[str], bool]
+_GOOGLE_SHEETS_EXPORT_REDIRECT_HOST = re.compile(
+    r"doc-[a-z0-9](?:[a-z0-9-]{0,50}[a-z0-9])?-sheets\.googleusercontent\.com\Z"
+)
+
+
+def google_sheets_export_redirect_host(host: str) -> bool:
+    """Allow only a bounded terminal host used by the fixed Sheets CSV export."""
+    return isinstance(host, str) and _GOOGLE_SHEETS_EXPORT_REDIRECT_HOST.fullmatch(host) is not None
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +83,7 @@ class SafeHttpClient:
             follow_redirects=False,
             headers={"User-Agent": "Orvani affiliate catalog automation/1.0"},
             timeout=_REQUEST_TIMEOUT,
+            trust_env=False,
         )
         self._owns_client = client is None
         self._dns_resolver = dns_resolver
@@ -93,6 +105,8 @@ class SafeHttpClient:
         url: str,
         allowed_hosts: Iterable[str],
         expected_content_types: Iterable[str],
+        *,
+        redirect_host_policy: _RedirectHostPolicy | None = None,
     ) -> HttpResponse:
         """Return a safe response or a typed error for an expected fetch failure."""
         allowed_hosts = tuple(allowed_hosts)
@@ -100,7 +114,12 @@ class SafeHttpClient:
 
         for attempt in range(RETRIES + 1):
             try:
-                return self._get_once(url, allowed_hosts, expected_content_types)
+                return self._get_once(
+                    url,
+                    allowed_hosts,
+                    expected_content_types,
+                    redirect_host_policy=redirect_host_policy,
+                )
             except TemporaryFetchError:
                 if attempt == RETRIES:
                     raise
@@ -112,6 +131,8 @@ class SafeHttpClient:
         url: str,
         allowed_hosts: tuple[str, ...],
         expected_content_types: tuple[str, ...],
+        *,
+        redirect_host_policy: _RedirectHostPolicy | None,
     ) -> HttpResponse:
         current_url = url
         redirect_count = 0
@@ -121,14 +142,10 @@ class SafeHttpClient:
                 current_url,
                 allowed_hosts,
                 redirected=redirect_count > 0,
+                redirect_host_policy=redirect_host_policy,
             )
             try:
-                with self._client.stream(
-                    "GET",
-                    current_url,
-                    follow_redirects=False,
-                    timeout=_REQUEST_TIMEOUT,
-                ) as response:
+                with self._cookie_free_stream(current_url) as response:
                     if response.status_code in _REDIRECT_STATUS_CODES:
                         current_url = self._next_redirect_url(response, current_url, redirect_count)
                         redirect_count += 1
@@ -152,11 +169,21 @@ class SafeHttpClient:
         allowed_hosts: tuple[str, ...],
         *,
         redirected: bool,
+        redirect_host_policy: _RedirectHostPolicy | None,
     ) -> None:
         error_type = UnsafeRedirectError if redirected else UnsafeUrlError
-        validate_https_url(url, allowed_hosts, error_type=error_type)
-        host = urlsplit(url).hostname
+        try:
+            host = urlsplit(url).hostname
+        except (TypeError, ValueError) as error:
+            raise error_type("URL insegura.") from error
         if host is None:
+            raise error_type("URL insegura.")
+        validate_https_url(url, (host,), error_type=error_type)
+        if not is_allowed_host(host, allowed_hosts) and not _redirect_host_is_allowed(
+            host,
+            redirected=redirected,
+            redirect_host_policy=redirect_host_policy,
+        ):
             raise error_type("URL insegura.")
         try:
             resolve_public_addresses(host, resolver=self._dns_resolver)
@@ -164,6 +191,19 @@ class SafeHttpClient:
             if redirected:
                 raise UnsafeRedirectError("Redirecionamento com DNS inseguro.") from error
             raise
+
+    def _build_cookie_free_request(self, url: str) -> httpx.Response:
+        request = self._client.build_request("GET", url, timeout=_REQUEST_TIMEOUT)
+        request.headers.pop("cookie", None)
+        return self._client.send(request, stream=True, follow_redirects=False)
+
+    @contextmanager
+    def _cookie_free_stream(self, url: str) -> Iterator[httpx.Response]:
+        response = self._build_cookie_free_request(url)
+        try:
+            yield response
+        finally:
+            response.close()
 
     @staticmethod
     def _next_redirect_url(response: httpx.Response, current_url: str, redirect_count: int) -> str:
@@ -188,6 +228,20 @@ class SafeHttpClient:
 
 def _normalize_media_type(value: str) -> str:
     return value.split(";", maxsplit=1)[0].strip().lower()
+
+
+def _redirect_host_is_allowed(
+    host: str,
+    *,
+    redirected: bool,
+    redirect_host_policy: _RedirectHostPolicy | None,
+) -> bool:
+    if not redirected or redirect_host_policy is None:
+        return False
+    try:
+        return redirect_host_policy(host)
+    except Exception:
+        return False
 
 
 def _read_bounded_body(response: httpx.Response) -> bytes:

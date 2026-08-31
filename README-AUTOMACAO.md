@@ -55,7 +55,7 @@ Por padrão, os testes live são pulados. O opt-in abaixo só é apropriado quan
 RUN_LIVE_TESTS=1 .venv/bin/python -m pytest tests/live/test_store_smoke.py -q
 ```
 
-Ele consulta o CSV público fixo em tempo de execução e seleciona somente linhas ativas de Mercado Livre e Shopee. Usa o cliente HTTP seguro e os conectores existentes, sem login, cookies, credenciais, escrita ou impressão de URLs, redirecionamentos, corpos, linhas do CSV e detalhes de erro. Não é deploy nem publicação; neste trabalho não se executa workflow, não se escreve na planilha e não se publica o site.
+Ele consulta o CSV público fixo em tempo de execução e seleciona somente linhas ativas de Mercado Livre e Shopee. O export pode seguir exclusivamente o host terminal limitado `doc-…-sheets.googleusercontent.com`; nenhum host amplo de `googleusercontent.com` é aceito. Usa o cliente HTTP seguro e os conectores existentes, sem login, cookies, credenciais, escrita ou impressão de URLs, redirecionamentos, corpos, linhas do CSV e detalhes de erro. Não é deploy nem publicação; neste trabalho não se executa workflow, não se escreve na planilha e não se publica o site.
 
 ## Dependências diretas e runtime de testes
 

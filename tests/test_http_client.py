@@ -5,7 +5,11 @@ import httpx
 import pytest
 
 from automation.config import BODY_LIMIT_BYTES
-from automation.http_client import HttpResponse, SafeHttpClient
+from automation.http_client import (
+    HttpResponse,
+    SafeHttpClient,
+    google_sheets_export_redirect_host,
+)
 from automation.models import (
     BlockedByStoreError,
     ProductNotFoundError,
@@ -53,6 +57,123 @@ def test_validates_every_redirect(http_client_factory):
         client.get("https://meli.la/a", ("meli.la", "mercadolivre.com.br"), ("text/html",))
 
     assert calls == Counter({"https://meli.la/a": 1})
+
+
+def test_allows_only_the_bounded_google_sheets_export_redirect(http_client_factory):
+    client, calls = http_client_factory({
+        "https://docs.google.com/spreadsheets/d/fixed/export": (
+            302,
+            {"location": "https://doc-a1-sheets.googleusercontent.com/download"},
+            b"",
+        ),
+        "https://doc-a1-sheets.googleusercontent.com/download": (
+            200,
+            {"content-type": "text/csv"},
+            b"header",
+        ),
+    })
+
+    response = client.get(
+        "https://docs.google.com/spreadsheets/d/fixed/export",
+        ("docs.google.com",),
+        ("text/csv",),
+        redirect_host_policy=google_sheets_export_redirect_host,
+    )
+
+    assert response.body == b"header"
+    assert calls == Counter({
+        "https://docs.google.com/spreadsheets/d/fixed/export": 1,
+        "https://doc-a1-sheets.googleusercontent.com/download": 1,
+    })
+
+
+@pytest.mark.parametrize(
+    "redirect_host",
+    (
+        "sheets.googleusercontent.com",
+        "doc-a1-sheets.googleusercontent.com.evil.example",
+        "doc--sheets.googleusercontent.com",
+        "doc-a1-sheets.googleusercontent.co",
+        "doc-" + "a" * 53 + "-sheets.googleusercontent.com",
+    ),
+)
+def test_rejects_unrelated_or_lookalike_google_export_redirects(http_client_factory, redirect_host):
+    client, calls = http_client_factory({
+        "https://docs.google.com/spreadsheets/d/fixed/export": (
+            302,
+            {"location": f"https://{redirect_host}/download"},
+            b"",
+        ),
+    })
+
+    with pytest.raises(UnsafeRedirectError):
+        client.get(
+            "https://docs.google.com/spreadsheets/d/fixed/export",
+            ("docs.google.com",),
+            ("text/csv",),
+            redirect_host_policy=google_sheets_export_redirect_host,
+        )
+
+    assert calls == Counter({"https://docs.google.com/spreadsheets/d/fixed/export": 1})
+
+
+def test_google_export_redirect_policy_never_admits_the_initial_url(http_client_factory):
+    client, calls = http_client_factory({
+        "https://doc-a1-sheets.googleusercontent.com/download": (
+            200,
+            {"content-type": "text/csv"},
+            b"header",
+        ),
+    })
+
+    with pytest.raises(UnsafeUrlError):
+        client.get(
+            "https://doc-a1-sheets.googleusercontent.com/download",
+            ("docs.google.com",),
+            ("text/csv",),
+            redirect_host_policy=google_sheets_export_redirect_host,
+        )
+
+    assert calls == Counter()
+
+
+def test_preserves_injected_cookie_state_without_sending_cookies(http_client_factory):
+    requests = []
+    client, _calls = http_client_factory(
+        {
+            "https://example.com/start": (
+                302,
+                {
+                    "location": "/end",
+                    "set-cookie": "response_cookie=should-not-return; Path=/",
+                },
+                b"",
+            ),
+            "https://example.com/end": (200, {"content-type": "text/html"}, b"ok"),
+        },
+        requests=requests,
+        client_builder=lambda transport: httpx.Client(
+            transport=transport,
+            headers={"Cookie": "header_cookie=should-not-send"},
+            cookies={"jar_cookie": "should-not-send"},
+        ),
+    )
+
+    response = client.get("https://example.com/start", ("example.com",), ("text/html",))
+
+    assert response.body == b"ok"
+    assert [request.headers.get("cookie") for request in requests] == [None, None]
+    assert client._client.cookies.get("jar_cookie") == "should-not-send"
+
+
+def test_default_client_ignores_ambient_transport_settings_and_starts_cookie_free():
+    client = SafeHttpClient()
+
+    try:
+        assert client._client.trust_env is False
+        assert list(client._client.cookies.items()) == []
+    finally:
+        client.close()
 
 
 def test_rejects_private_dns_before_making_a_request(http_client_factory):

@@ -19,7 +19,7 @@ pytestmark = pytest.mark.skipif(not RUN_LIVE_TESTS, reason="RUN_LIVE_TESTS=1 nã
 
 from automation.config import CATALOG_CURRENCY, PRODUCTS_HEADERS
 from automation.connectors.base import build_connector_registry
-from automation.http_client import SafeHttpClient
+from automation.http_client import SafeHttpClient, google_sheets_export_redirect_host
 from automation.models import (
     BlockedByStoreError,
     InvalidProductDataError,
@@ -62,7 +62,12 @@ def test_current_active_mercado_livre_and_shopee_rows_follow_read_only_contract(
 
 
 def _current_active_store_samples(client: SafeHttpClient) -> tuple[tuple[str, str], ...]:
-    response = client.get(_PUBLIC_CATALOG_CSV, _CATALOG_HOSTS, _CATALOG_CONTENT_TYPES)
+    response = client.get(
+        _PUBLIC_CATALOG_CSV,
+        _CATALOG_HOSTS,
+        _CATALOG_CONTENT_TYPES,
+        redirect_host_policy=google_sheets_export_redirect_host,
+    )
     try:
         rows = tuple(csv.reader(StringIO(response.body.decode("utf-8-sig", errors="strict"))))
     except (UnicodeError, csv.Error):
