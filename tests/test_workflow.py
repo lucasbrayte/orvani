@@ -6,9 +6,8 @@ import os
 from pathlib import Path
 import subprocess
 
-import json
-
 import pytest
+import yaml
 
 
 REPOSITORY_ROOT = Path(__file__).parents[1]
@@ -19,21 +18,8 @@ PENDING_CRON = "17 0-2,4-14,16-23 * * *"
 
 
 def load_workflow() -> dict[str, object]:
-    """Load GitHub Actions YAML through the available trusted PyYAML parser."""
-    result = subprocess.run(
-        [
-            "python3",
-            "-c",
-            "import json, sys, yaml; print(json.dumps(yaml.load(open(sys.argv[1]), Loader=yaml.BaseLoader)))",
-            str(WORKFLOW_PATH),
-        ],
-        cwd=REPOSITORY_ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
-    workflow = json.loads(result.stdout)
+    """Load workflow YAML through the active pytest interpreter's PyYAML."""
+    workflow = yaml.load(WORKFLOW_PATH.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
     assert isinstance(workflow, dict)
     return workflow
 
