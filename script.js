@@ -1,6 +1,6 @@
 const CONFIG = {
   spreadsheetUrl: "https://docs.google.com/spreadsheets/d/1oj0NbAkngUjjaYfJy5sEgzfDb7I0klHaUbvTzq6ZDB0/export?format=csv&gid=952991100",
-  refreshIntervalMs: 30000,
+  refreshIntervalMs: 300000,
   affiliatePartners: {
     amazon: {
       label: "Amazon",
@@ -33,6 +33,10 @@ const CONFIG = {
     hotmart: {
       label: "Hotmart",
       hosts: ["hotmart.com"],
+    },
+    tiktok_shop: {
+      label: "TikTok Shop",
+      hosts: [],
     },
   },
 };
@@ -208,6 +212,67 @@ const CONFIG = {
     return url.href;
   }
 
+  function parseOfferDate(raw) {
+    const value = String(raw ?? "").trim();
+    if (value === "") return null;
+
+    const match = /^(?:(\d{4})-(\d{2})-(\d{2})|(\d{2})\/(\d{2})\/(\d{4}))$/.exec(value);
+    if (!match) return null;
+    const year = Number(match[1] ?? match[6]);
+    const month = Number(match[2] ?? match[5]);
+    const day = Number(match[3] ?? match[4]);
+    if (year < 1 || month < 1 || month > 12 || day < 1 || day > 31) return null;
+
+    const parsed = new Date(0);
+    parsed.setHours(23, 59, 59, 999);
+    parsed.setFullYear(year, month - 1, day);
+    if (
+      parsed.getFullYear() !== year ||
+      parsed.getMonth() !== month - 1 ||
+      parsed.getDate() !== day
+    ) {
+      return null;
+    }
+    return parsed;
+  }
+
+  function validCoupon(rawCode, rawExpiry, now = new Date()) {
+    const code = String(rawCode ?? "").trim();
+    if (code === "") return null;
+    const expiryValue = String(rawExpiry ?? "").trim();
+    if (expiryValue === "") return Object.freeze({ code, expiresAt: null });
+    const expiresAt = parseOfferDate(expiryValue);
+    if (!expiresAt || expiresAt.getTime() < now.getTime()) return null;
+    return Object.freeze({ code, expiresAt });
+  }
+
+  function normalizeButtonText(raw) {
+    return Array.from(String(raw ?? "").replace(/\s+/g, " ").trim()).slice(0, 48).join("");
+  }
+
+  function parseOptionalOrder(raw) {
+    const value = String(raw ?? "").trim();
+    if (value === "") return null;
+    if (!/^\d+$/.test(value)) throw new RowValidationError(["ordem"]);
+    const order = Number(value);
+    if (!Number.isSafeInteger(order) || order < 0) throw new RowValidationError(["ordem"]);
+    return order;
+  }
+
+  function sortProductsByOrder(products) {
+    return products
+      .map((product, index) => ({ product, index }))
+      .sort((left, right) => {
+        const leftBlank = left.product.order === null || left.product.order === undefined;
+        const rightBlank = right.product.order === null || right.product.order === undefined;
+        if (leftBlank && rightBlank) return left.index - right.index;
+        if (leftBlank) return 1;
+        if (rightBlank) return -1;
+        return left.product.order - right.product.order || left.index - right.index;
+      })
+      .map(({ product }) => product);
+  }
+
   function parsePrice(raw, { optional = false } = {}) {
     const value = String(raw ?? "").trim();
     if (optional && value === "") return null;
@@ -267,6 +332,8 @@ const CONFIG = {
     const affiliateUrl = validatePartnerUrl(required(record, "link_afiliado"), partner);
     if (!affiliateUrl) throw new RowValidationError(["link_afiliado"]);
 
+    const coupon = validCoupon(record.cupom, record.validade_oferta);
+
     return Object.freeze({
       id,
       name,
@@ -280,6 +347,11 @@ const CONFIG = {
       images: Object.freeze(images),
       partner,
       affiliateUrl,
+      subcategory: compactText(record.subcategoria),
+      coupon,
+      couponExpiresAt: coupon?.expiresAt ?? null,
+      buttonText: normalizeButtonText(record.texto_botao),
+      order: parseOptionalOrder(record.ordem),
       featured: parseBoolean(record.destaque, "destaque"),
       active: parseBoolean(record.ativo, "ativo"),
     });
@@ -325,6 +397,8 @@ const CONFIG = {
       magalu: "magalu",
       natura: "natura",
       hotmart: "hotmart",
+      tiktok: "tiktok_shop",
+      tiktok_shop: "tiktok_shop",
     };
     const partner = aliases[value];
     if (!partner || !Object.hasOwn(CONFIG.affiliatePartners, partner)) {
@@ -333,15 +407,21 @@ const CONFIG = {
     return partner;
   }
 
-  function stableSheetId(name, affiliateUrl) {
-    const input = `${name}\n${affiliateUrl}`;
-    let hash = 2166136261;
-    for (let index = 0; index < input.length; index += 1) {
-      hash ^= input.charCodeAt(index);
-      hash = Math.imul(hash, 16777619);
+  function stableSheetId(name, affiliateUrl, partnerKey) {
+    const partner = categorySlug(partnerKey) || "parceiro";
+    const safeUrl = validatePartnerUrl(affiliateUrl, partnerKey);
+    if (safeUrl) {
+      const pathname = new URL(safeUrl).pathname;
+      if (partnerKey === "mercado_livre") {
+        const mercadoMatch = /\/p\/(MLB\d+)(?:\/|$)/i.exec(pathname);
+        if (mercadoMatch) return `sheet-${mercadoMatch[1].toLowerCase()}`;
+      }
+      if (partnerKey === "shopee") {
+        const shopeeMatch = /^\/product\/[1-9]\d*\/([1-9]\d*)\/?$/.exec(pathname);
+        if (shopeeMatch) return `sheet-shopee-${shopeeMatch[1]}`;
+      }
     }
-    const slug = categorySlug(name).slice(0, 48) || "produto";
-    return `sheet-${slug}-${(hash >>> 0).toString(36)}`;
+    return `sheet-${partner}-${categorySlug(name) || "produto"}`;
   }
 
   function isCurrentSheetInstructionRow(record) {
@@ -352,6 +432,7 @@ const CONFIG = {
     const name = required(record, "Nome");
     const description = required(record, "Descrição");
     const affiliateUrl = required(record, "Link de Afiliado");
+    const partner = parseCurrentSheetPartner(record.Plataforma);
     const basePrice = parseCurrentSheetPrice(required(record, "Preço *"), "preco");
     const promotionalPrice = parseCurrentSheetPrice(record["Preço Promocional"], "preco_anterior", {
       optional: true,
@@ -362,7 +443,7 @@ const CONFIG = {
       .join("|");
 
     return {
-      id: stableSheetId(name, affiliateUrl),
+      id: stableSheetId(name, affiliateUrl, partner),
       nome: name,
       descricao_curta: description,
       descricao: description,
@@ -372,8 +453,13 @@ const CONFIG = {
       preco_anterior: promotionalPrice ? basePrice : "",
       imagem: required(record, "Imagem 1 *"),
       imagens: extraImages,
-      loja: parseCurrentSheetPartner(record.Plataforma),
+      loja: partner,
       link_afiliado: affiliateUrl,
+      subcategoria: record.Subcategoria,
+      cupom: record.Cupom,
+      validade_oferta: record["Validade da oferta"],
+      texto_botao: record["Texto do Botão"],
+      ordem: record.Ordem,
       destaque: parseCurrentSheetBoolean(record.Destaque, "destaque", { optional: true }),
       ativo: parseCurrentSheetBoolean(record["Ativo *"], "ativo"),
     };
@@ -430,7 +516,7 @@ const CONFIG = {
     });
 
     return Object.freeze({
-      products: Object.freeze(products),
+      products: Object.freeze(sortProductsByOrder(products)),
       rejected: Object.freeze(rejected),
     });
   }
@@ -562,11 +648,18 @@ const CONFIG = {
   const OrvaniCore = Object.freeze({
     CONFIG,
     CSV_HEADERS,
+    CURRENT_SHEET_HEADERS,
     DEMO_PRODUCTS,
     parseCsv,
     normalizeRows,
     validateImageUrl,
     validatePartnerUrl,
+    parseOfferDate,
+    validCoupon,
+    normalizeButtonText,
+    parseOptionalOrder,
+    sortProductsByOrder,
+    stableSheetId,
     calculateDiscount,
     filterProducts,
     partnerLabel,

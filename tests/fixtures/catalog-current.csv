@@ -1,0 +1,3 @@
+Ativo *,Tipo,Plataforma,Categoria,Subcategoria,Nome,Descrição,Preço *,Preço Promocional,Cupom,Validade da oferta,Link de Afiliado,Texto do Botão,Vídeo (URL YouTube),Imagem 1 *,Imagem 2,Imagem 3,Imagem 4,Ordem,Destaque
+Sim,Físico,Shopee,Eletrônicos,Áudio,Fone de teste,Produto fictício para validar o adaptador.,199.90,149.90,OFF10,9999-12-31,https://shopee.com.br/product/12345678/87654321?campaign=fixture,  Comprar   agora  ,,https://images.example.invalid/fone-1.jpg,,,,2,Sim
+Sim,Físico,Mercado Livre,Casa,Organização,Organizador de teste,Outro produto fictício para validar o adaptador.,89.90,,,,https://www.mercadolivre.com.br/organizador-de-teste/p/MLB123456789?source=fixture,,,https://images.example.invalid/organizador-1.jpg,,,,1,Não
