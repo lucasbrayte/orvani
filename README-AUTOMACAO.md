@@ -1,6 +1,6 @@
 # Operação segura da automação de afiliados
 
-Este guia é para quem opera a planilha e o workflow. A automação preserva exatamente os 20 cabeçalhos de `Produtos` e as 32 colunas de `Importações`. Ela não apaga produtos, não despublica itens e não altera o CSV público consumido pelo frontend.
+Este guia é para quem opera a planilha e o workflow. A automação preserva exatamente os 20 cabeçalhos de `Produtos` na linha 4 e as 32 colunas de `Importações` na linha 1. As linhas institucionais 1–3 de `Produtos` ficam fora da área de escrita; os produtos começam na linha 5. A automação não apaga produtos, não despublica itens e não altera o CSV público consumido pelo frontend.
 
 ## Antes de qualquer escrita
 

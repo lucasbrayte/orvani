@@ -26,6 +26,7 @@ from .config import (
     IMPORT_HEADERS,
     IMPORT_WORKSHEET,
     PARTNERS,
+    PRODUCTS_HEADER_ROW,
     PRODUCTS_HEADERS,
     PRODUCTS_WORKSHEET,
     SPREADSHEET_ID,
@@ -244,7 +245,7 @@ def plan_publication(
             return ()
         row_number = existing.row_number
     else:
-        row_number = max((row.row_number for row in rows), default=1) + 1
+        row_number = max((row.row_number for row in rows), default=PRODUCTS_HEADER_ROW) + 1
     range_name = _products_range(worksheet, row_number)
     return (SheetUpdate(range_name, (values,)),)
 
@@ -442,7 +443,12 @@ def _partner_token(value: str) -> str:
 def _validate_product_row_identities(rows: Sequence[ProductRow]) -> None:
     identities: set[int] = set()
     for row in rows:
-        if not isinstance(row, ProductRow) or not isinstance(row.row_number, int) or isinstance(row.row_number, bool) or row.row_number < 2:
+        if (
+            not isinstance(row, ProductRow)
+            or not isinstance(row.row_number, int)
+            or isinstance(row.row_number, bool)
+            or row.row_number <= PRODUCTS_HEADER_ROW
+        ):
             raise AmbiguousProductMatchError("A identidade de uma linha de Produtos é inválida.")
         if row.row_number in identities:
             raise AmbiguousProductMatchError("Há linhas de Produtos com identidade duplicada.")
@@ -518,7 +524,11 @@ def _validate_worksheet(worksheet: Any) -> None:
 
 
 def _products_range(worksheet: str, row_number: int) -> str:
-    if not isinstance(row_number, int) or isinstance(row_number, bool) or row_number < 2:
+    if (
+        not isinstance(row_number, int)
+        or isinstance(row_number, bool)
+        or row_number <= PRODUCTS_HEADER_ROW
+    ):
         raise SheetSchemaError("A linha de Produtos é inválida.")
     return "'" + worksheet.replace("'", "''") + f"'!A{row_number}:{_PRODUCT_LAST_COLUMN}{row_number}"
 
@@ -1263,7 +1273,7 @@ def _read_product_rows(gateway: SheetsGateway, worksheet: str) -> tuple[ProductR
 def parse_product_rows(raw: Sequence[tuple[Any, ...]]) -> tuple[ProductRow, ...]:
     """Parse current Produtos rows using the same contract as synchronization."""
     output: list[ProductRow] = []
-    for row_number, row in enumerate(raw, start=2):
+    for row_number, row in enumerate(raw, start=PRODUCTS_HEADER_ROW + 1):
         if not isinstance(row, tuple):
             raise SheetSchemaError("Uma linha de Produtos é inválida.")
         cells = tuple(row) + ("",) * (20 - len(row))

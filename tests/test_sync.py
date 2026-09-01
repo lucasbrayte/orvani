@@ -67,7 +67,7 @@ def test_sync_engine_moves_a_new_affiliate_row_to_review_without_writing_in_dry_
         ),
         values={
             _quoted("Importações", "A1:AF"): [list(IMPORT_HEADERS), list(_record_values(imported))],
-            _quoted("Produtos", "A1:T"): [list(PRODUCTS_HEADERS)],
+            _quoted("Produtos", "A4:T"): [list(PRODUCTS_HEADERS)],
         },
     )
 
@@ -99,7 +99,7 @@ def test_sync_engine_turns_the_third_temporary_failure_into_attention_without_pr
         ),
         values={
             _quoted("Importações", "A1:AF"): [list(IMPORT_HEADERS), list(_record_values(imported))],
-            _quoted("Produtos", "A1:T"): [list(PRODUCTS_HEADERS), list(map_snapshot_to_product_values(_snapshot(), imported, None))],
+            _quoted("Produtos", "A4:T"): [list(PRODUCTS_HEADERS), list(map_snapshot_to_product_values(_snapshot(), imported, None))],
         },
     )
 
@@ -130,7 +130,7 @@ def test_sync_engine_aborts_before_fetch_or_checkpoint_for_malformed_product_row
         ),
         values={
             _quoted("Importações", "A1:AF"): [list(IMPORT_HEADERS), list(_record_values(_record(status=ImportStatus.NOVO)))],
-            _quoted("Produtos", "A1:T"): [list(PRODUCTS_HEADERS), ["Sim", "tipo", "partner", "cat", "sub", "name", "desc", "not-price"]],
+            _quoted("Produtos", "A4:T"): [list(PRODUCTS_HEADERS), ["Sim", "tipo", "partner", "cat", "sub", "name", "desc", "not-price"]],
         },
     )
 
@@ -159,12 +159,21 @@ def test_sync_engine_publishes_an_approved_snapshot_without_name_error(mode, dry
         sheets=(
             {"properties": {"sheetId": 1, "title": "Importações", "sheetType": "GRID", "gridProperties": {"rowCount": 20, "columnCount": 32}}},
             {"properties": {"sheetId": 2, "title": "Produtos", "sheetType": "GRID", "gridProperties": {"rowCount": 20, "columnCount": 20}}},
-        ), values={_quoted("Importações", "A1:AF"): [list(IMPORT_HEADERS), list(_record_values(imported))], _quoted("Produtos", "A1:T"): [list(PRODUCTS_HEADERS)]},
+        ), values={_quoted("Importações", "A1:AF"): [list(IMPORT_HEADERS), list(_record_values(imported))], _quoted("Produtos", "A4:T"): [list(PRODUCTS_HEADERS)]},
     )
     report = SyncEngine(sheets, Registry()).run(mode, dry_run=dry_run)
     assert report.final_status(2) is ImportStatus.PUBLICADO
-    assert report.planned_product_updates[0].range_name == "'Produtos'!A2:T2"
+    assert report.planned_product_updates[0].range_name == "'Produtos'!A5:T5"
     assert (not sheets.value_writes) is dry_run
+
+
+def test_product_parser_preserves_the_first_physical_row_below_header_four():
+    """Catches product updates being redirected into the institutional rows above the catalog."""
+    from automation.sync import parse_product_rows
+
+    row = _product_values(_row())
+
+    assert parse_product_rows((tuple(row),))[0].row_number == 5
 
 
 @pytest.mark.parametrize("checked,expected", [
@@ -253,7 +262,7 @@ def _sync_gateway(records=(), products=(), *, raw_imports=None, raw_products=Non
         ),
         values={
             _quoted("Importações", "A1:AF"): [list(IMPORT_HEADERS), *import_rows],
-            _quoted("Produtos", "A1:T"): [list(PRODUCTS_HEADERS), *product_rows],
+            _quoted("Produtos", "A4:T"): [list(PRODUCTS_HEADERS), *product_rows],
         },
     )
 
@@ -464,7 +473,7 @@ def test_two_approved_imports_for_one_external_identity_plan_one_product_row_wri
     )
 
     assert [item.final_status for item in report.items] == [ImportStatus.PUBLICADO, ImportStatus.PUBLICADO]
-    assert [update.range_name for update in report.planned_product_updates] == ["'Produtos'!A2:T2"]
+    assert [update.range_name for update in report.planned_product_updates] == ["'Produtos'!A5:T5"]
 
 
 @pytest.mark.parametrize("display_partner,snapshot_partner,external_id,existing_url,current_url", [
@@ -477,7 +486,7 @@ def test_product_identity_reconstructed_from_partner_alias_prevents_append(displ
     from automation.sync import SyncEngine
 
     existing = _row(
-        row_number=2,
+        row_number=5,
         partner=display_partner,
         affiliate_url=existing_url,
         reconstructed_external_id=None,
@@ -495,7 +504,7 @@ def test_product_identity_reconstructed_from_partner_alias_prevents_append(displ
         "pending", dry_run=True
     )
 
-    assert report.planned_product_updates[0].range_name == "'Produtos'!A2:T2"
+    assert report.planned_product_updates[0].range_name == "'Produtos'!A5:T5"
 
 
 def test_mercado_catalog_path_is_preserved_without_becoming_an_external_item_id():
@@ -523,11 +532,11 @@ def test_product_identity_is_never_reconstructed_from_an_unapproved_partner_host
 def test_catalog_id_is_not_a_match_key_for_distinct_external_items():
     """Protects the ruling that catalog identity never merges separate listings."""
     first = _row(
-        2, partner="Mercado Livre", reconstructed_external_id="MLB111111",
+        5, partner="Mercado Livre", reconstructed_external_id="MLB111111",
         reconstructed_catalog_id="MLB1234",
     )
     second = _row(
-        3, partner="mercado_livre", reconstructed_external_id="MLB222222",
+        6, partner="mercado_livre", reconstructed_external_id="MLB222222",
         reconstructed_catalog_id="MLB1234", affiliate_url="https://meli.la/second",
     )
 
@@ -555,7 +564,7 @@ def test_same_catalog_different_external_ids_append_distinct_rows_and_preserve_c
     report = SyncEngine(_sync_gateway(records=(first, second)), registry).run("pending", dry_run=True)
 
     assert [update.range_name for update in report.planned_product_updates] == [
-        "'Produtos'!A2:T2", "'Produtos'!A3:T3",
+        "'Produtos'!A5:T5", "'Produtos'!A6:T6",
     ]
 
 
@@ -1100,8 +1109,8 @@ def test_ambiguous_publication_stays_review_and_never_writes_products():
 
     record = _record(status=ImportStatus.NOVO, last_published_url="https://meli.la/duplicate")
     rows = (
-        _row(2, affiliate_url="https://meli.la/duplicate"),
-        _row(3, affiliate_url="https://meli.la/duplicate#fragment"),
+        _row(5, affiliate_url="https://meli.la/duplicate"),
+        _row(6, affiliate_url="https://meli.la/duplicate#fragment"),
     )
     report = SyncEngine(
         _sync_gateway(records=(record,), products=rows),
@@ -1120,7 +1129,7 @@ def test_blocked_update_mode_changes_only_operational_state_ranges():
 
     record = _record(status=ImportStatus.PUBLICADO, update_mode=UpdateMode.BLOQUEADO)
     registry = _OutcomeRegistry({})
-    report = SyncEngine(_sync_gateway(records=(record,), products=(_row(2),)), registry).run(
+    report = SyncEngine(_sync_gateway(records=(record,), products=(_row(5),)), registry).run(
         "full", dry_run=True
     )
 
@@ -1138,7 +1147,7 @@ def test_blocked_only_live_run_has_one_terminal_import_batch_and_no_processing_c
     from automation.sync import SyncEngine
 
     record = _record(status=ImportStatus.PUBLICADO, update_mode=UpdateMode.BLOQUEADO)
-    sheets = _sync_gateway(records=(record,), products=(_row(2),))
+    sheets = _sync_gateway(records=(record,), products=(_row(5),))
     registry = _OutcomeRegistry({})
 
     report = SyncEngine(sheets, registry).run("full", dry_run=False)
@@ -1206,7 +1215,7 @@ def test_mixed_blocked_and_fetch_run_checkpoints_only_fetchable_rows():
         blocked, automation_id="fetched", update_mode=UpdateMode.AUTOMATICO,
         affiliate_url="https://meli.la/fetched",
     )
-    sheets = _sync_gateway(records=(blocked, fetched), products=(_row(2),))
+    sheets = _sync_gateway(records=(blocked, fetched), products=(_row(5),))
     registry = _OutcomeRegistry({fetched.affiliate_url: _snapshot()})
 
     SyncEngine(sheets, registry).run("full", dry_run=False)
@@ -1258,7 +1267,7 @@ def test_live_publication_uses_checkpoint_product_terminal_phase_order_and_batch
 
     batches = [[item["range"] for item in write["data"]] for write in sheets.value_writes]
     assert batches[0] == ["'Importações'!Z2:AE2"]
-    assert batches[1] == ["'Produtos'!A2:T2"]
+    assert batches[1] == ["'Produtos'!A5:T5"]
     assert all(name.startswith("'Importações'!") for name in batches[2])
     assert len(sheets.value_writes) == 3
     assert report.final_status(2) is ImportStatus.PUBLICADO
@@ -1946,6 +1955,8 @@ def test_match_refuses_duplicate_or_invalid_product_row_identity():
         find_product_match(_record(), (first, replace(first, affiliate_url="https://meli.la/other")))
     with pytest.raises(AmbiguousProductMatchError):
         find_product_match(_record(), (_row(True),))
+    with pytest.raises(AmbiguousProductMatchError):
+        find_product_match(_record(), (_row(4),))
 
 
 def test_publication_plans_an_update_for_adoption_without_erasing_preserved_values():

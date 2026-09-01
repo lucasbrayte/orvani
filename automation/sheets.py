@@ -15,7 +15,7 @@ from uuid import uuid4
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
-from .config import IMPORT_HEADERS, PRODUCTS_HEADERS, Settings
+from .config import IMPORT_HEADERS, PRODUCTS_HEADERS, PRODUCTS_HEADER_ROW, Settings
 from .models import ConfigurationError, ImportStatus, SheetSchemaError, SheetUpdate, UpdateMode
 
 _SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
@@ -136,7 +136,10 @@ def setup_import_sheet(gateway: SheetsGateway, worksheet: str, *, dry_run: bool 
 def read_table(gateway: SheetsGateway, worksheet: str, *, headers: Sequence[str] = IMPORT_HEADERS) -> tuple[tuple[Any, ...], ...]:
     _validate_title(worksheet)
     expected = _approved_header_contract(headers)
-    values = gateway.get_values(_a1_range(worksheet, f"A1:{_column_label(len(expected) - 1)}")).get("values", [])
+    header_row = _header_row_for_contract(expected)
+    values = gateway.get_values(
+        _a1_range(worksheet, f"A{header_row}:{_column_label(len(expected) - 1)}")
+    ).get("values", [])
     if not isinstance(values, list) or not values or not isinstance(values[0], list):
         raise SheetSchemaError("A aba não possui dados legíveis.")
     validate_headers(values[0], expected=expected)
@@ -160,13 +163,20 @@ def batch_write(
     if value_input_option != "RAW":
         raise SheetSchemaError("O modo de escrita da planilha é inválido.")
     expected = _approved_header_contract(headers)
+    header_row = _header_row_for_contract(expected)
     pending = tuple(updates)
     if not pending:
         return
-    grid = _worksheet_grid_for_write(gateway, worksheet, expected)
+    grid = _worksheet_grid_for_write(gateway, worksheet, expected, header_row)
     width_limit = min(len(expected), grid["columnCount"])
     data = [
-        _transport_update(update, worksheet, width_limit, grid["rowCount"])
+        _transport_update(
+            update,
+            worksheet,
+            width_limit,
+            grid["rowCount"],
+            first_writable_row=header_row + 1,
+        )
         for update in pending
     ]
     if data:
@@ -233,16 +243,21 @@ def _grid_is_valid(grid: Any) -> bool:
 
 
 def _worksheet_grid_for_write(
-    gateway: SheetsGateway, worksheet: str, expected: Sequence[str]
+    gateway: SheetsGateway,
+    worksheet: str,
+    expected: Sequence[str],
+    header_row: int,
 ) -> Mapping[str, int]:
     sheet = _sheet_inventory(gateway.get_spreadsheet()).get(worksheet)
     if sheet is None:
         raise SheetSchemaError("A aba de escrita não foi encontrada.")
     grid = sheet["properties"]["gridProperties"]
-    if grid["columnCount"] < len(expected):
+    if grid["columnCount"] < len(expected) or grid["rowCount"] <= header_row:
         raise SheetSchemaError("A grade da aba não comporta o contrato de escrita.")
     last_column = _column_label(len(expected) - 1)
-    values = gateway.get_values(_a1_range(worksheet, f"A1:{last_column}")).get("values", [])
+    values = gateway.get_values(
+        _a1_range(worksheet, f"A{header_row}:{last_column}")
+    ).get("values", [])
     if not isinstance(values, list) or not values or not isinstance(values[0], list):
         raise SheetSchemaError("A aba de escrita não possui cabeçalho legível.")
     validate_headers(values[0], expected=expected)
@@ -359,13 +374,26 @@ def _approved_header_contract(headers: Sequence[str]) -> tuple[str, ...]:
     return expected
 
 
+def _header_row_for_contract(headers: Sequence[str]) -> int:
+    return PRODUCTS_HEADER_ROW if tuple(headers) == PRODUCTS_HEADERS else 1
+
+
 def _transport_update(
-    update: SheetUpdate, worksheet: str, width_limit: int, row_limit: int
+    update: SheetUpdate,
+    worksheet: str,
+    width_limit: int,
+    row_limit: int,
+    *,
+    first_writable_row: int,
 ) -> Mapping[str, Any]:
     if not isinstance(update, SheetUpdate):
         raise SheetSchemaError("A atualização da planilha é inválida.")
     range_name, width, height = _authorized_rectangle(
-        update.range_name, worksheet, width_limit, row_limit
+        update.range_name,
+        worksheet,
+        width_limit,
+        row_limit,
+        first_writable_row=first_writable_row,
     )
     if not isinstance(update.values, tuple) or len(update.values) != height:
         raise SheetSchemaError("As dimensões da atualização não correspondem ao intervalo.")
@@ -378,7 +406,12 @@ def _transport_update(
 
 
 def _authorized_rectangle(
-    range_name: Any, worksheet: str, width_limit: int, row_limit: int
+    range_name: Any,
+    worksheet: str,
+    width_limit: int,
+    row_limit: int,
+    *,
+    first_writable_row: int,
 ) -> tuple[str, int, int]:
     if not isinstance(range_name, str) or not (match := _A1.fullmatch(range_name)):
         raise SheetSchemaError("O intervalo de atualização é inválido.")
@@ -392,6 +425,7 @@ def _authorized_rectangle(
     if (
         start_col > end_col
         or start_row > end_row
+        or start_row < first_writable_row
         or start_col < 0
         or end_col >= width_limit
         or end_row > row_limit

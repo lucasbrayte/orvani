@@ -441,7 +441,10 @@ def _set_sheet_contract(fake_sheets, worksheet, headers, *, rows=1000, columns=N
     columns = len(headers) if columns is None else columns
     fake_sheets._sheets = [_grid_sheet(17, worksheet, rows=rows, columns=columns)]
     last_column = "T" if len(headers) == 20 else "AF"
-    fake_sheets._values[f"'{worksheet.replace("'", "''")}'!A1:{last_column}"] = [list(headers)]
+    header_row = 4 if tuple(headers) == PRODUCTS_HEADERS else 1
+    fake_sheets._values[
+        f"'{worksheet.replace("'", "''")}'!A{header_row}:{last_column}"
+    ] = [list(headers)]
 
 
 def test_google_values_read_requests_unformatted_values_and_serial_dates():
@@ -515,10 +518,28 @@ def test_read_table_supports_products_exact_contract_and_safe_quoted_range(fake_
     from automation.sheets import read_table
 
     fake_sheets._sheets = [_grid_sheet(19, "Produtos", columns=20)]
-    fake_sheets._values["'Produtos'!A1:T"] = [list(PRODUCTS_HEADERS), ["Sim", "Físico", "Shopee"]]
+    fake_sheets._values["'Produtos'!A4:T"] = [list(PRODUCTS_HEADERS), ["Sim", "Físico", "Shopee"]]
 
     assert read_table(fake_sheets, "Produtos", headers=PRODUCTS_HEADERS) == (("Sim", "Físico", "Shopee"),)
-    assert fake_sheets.value_reads == ["'Produtos'!A1:T"]
+    assert fake_sheets.value_reads == ["'Produtos'!A4:T"]
+
+
+def test_batch_write_rejects_product_metadata_and_binds_the_header_at_row_four(fake_sheets):
+    from automation.sheets import batch_write
+
+    fake_sheets._sheets = [_grid_sheet(19, "Produtos", columns=20)]
+    fake_sheets._values["'Produtos'!A4:T"] = [list(PRODUCTS_HEADERS)]
+
+    with pytest.raises(SheetSchemaError, match="fora do contrato"):
+        batch_write(
+            fake_sheets,
+            (SheetUpdate("'Produtos'!A3", (("não tocar",),)),),
+            worksheet="Produtos",
+            headers=PRODUCTS_HEADERS,
+        )
+
+    assert fake_sheets.value_reads == ["'Produtos'!A4:T"]
+    assert fake_sheets.value_writes == []
 
 
 def test_batch_write_uses_the_selected_products_width_contract(fake_sheets):
@@ -527,14 +548,14 @@ def test_batch_write_uses_the_selected_products_width_contract(fake_sheets):
     _set_sheet_contract(fake_sheets, "Produtos", PRODUCTS_HEADERS)
     batch_write(
         fake_sheets,
-        (SheetUpdate("'Produtos'!T2", (("última coluna",),)),),
+        (SheetUpdate("'Produtos'!T5", (("última coluna",),)),),
         worksheet="Produtos",
         headers=PRODUCTS_HEADERS,
     )
     with pytest.raises(SheetSchemaError):
         batch_write(
             fake_sheets,
-            (SheetUpdate("'Produtos'!U2", (("fora",),)),),
+            (SheetUpdate("'Produtos'!U5", (("fora",),)),),
             worksheet="Produtos",
             headers=PRODUCTS_HEADERS,
         )
@@ -546,13 +567,13 @@ def test_batch_write_binds_a_custom_products_worksheet_to_its_real_header_before
     _set_sheet_contract(fake_sheets, "Catálogo ' 2026", PRODUCTS_HEADERS)
     batch_write(
         fake_sheets,
-        (SheetUpdate("'Catálogo '' 2026'!T2", (("última coluna",),)),),
+        (SheetUpdate("'Catálogo '' 2026'!T5", (("última coluna",),)),),
         worksheet="Catálogo ' 2026",
         headers=PRODUCTS_HEADERS,
     )
 
     assert fake_sheets.spreadsheet_reads == 1
-    assert fake_sheets.value_reads == ["'Catálogo '' 2026'!A1:T"]
+    assert fake_sheets.value_reads == ["'Catálogo '' 2026'!A4:T"]
     assert len(fake_sheets.value_writes) == 1
 
 
@@ -563,7 +584,7 @@ def test_batch_write_rejects_import_contract_on_real_products_header_before_writ
     with pytest.raises(SheetSchemaError):
         batch_write(
             fake_sheets,
-            (SheetUpdate("'Produtos'!U2", (("fora da aba real",),)),),
+            (SheetUpdate("'Produtos'!U5", (("fora da aba real",),)),),
             worksheet="Produtos",
             headers=IMPORT_HEADERS,
         )
@@ -577,7 +598,7 @@ def test_batch_write_rejects_wrong_contract_on_a_custom_products_worksheet_befor
     with pytest.raises(SheetSchemaError):
         batch_write(
             fake_sheets,
-            (SheetUpdate("'Catálogo customizado'!T2", (("não importa",),)),),
+            (SheetUpdate("'Catálogo customizado'!T5", (("não importa",),)),),
             worksheet="Catálogo customizado",
             headers=IMPORT_HEADERS,
         )
@@ -591,7 +612,7 @@ def test_batch_write_rejects_a_real_header_mismatch_before_write(fake_sheets):
     with pytest.raises(SheetSchemaError):
         batch_write(
             fake_sheets,
-            (SheetUpdate("'Produtos'!T2", (("não importa",),)),),
+            (SheetUpdate("'Produtos'!T5", (("não importa",),)),),
             worksheet="Produtos",
             headers=PRODUCTS_HEADERS,
         )
@@ -614,7 +635,7 @@ def test_batch_write_rejects_a_real_grid_narrower_than_the_contract_before_write
     with pytest.raises(SheetSchemaError):
         batch_write(
             fake_sheets,
-            (SheetUpdate("'Produtos'!T2", (("outside",),)),),
+            (SheetUpdate("'Produtos'!T5", (("outside",),)),),
             worksheet="Produtos",
             headers=PRODUCTS_HEADERS,
         )
