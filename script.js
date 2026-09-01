@@ -751,6 +751,8 @@ const CONFIG = {
       image.height = 720;
       image.decoding = "async";
       image.loading = eager ? "eager" : "lazy";
+      image.style.objectFit = "contain";
+      image.style.objectPosition = "center";
       image.addEventListener("error", () => {
         if (image.src !== fallbackImage) image.src = fallbackImage;
       }, { once: true });
@@ -835,28 +837,6 @@ const CONFIG = {
       content.append(offerLink(product));
       slide.append(productImage(product, { eager: index === 0 }), content);
       return slide;
-    }
-
-    function createHeroProductCard(product, index) {
-      const card = element("article", `hero-product-card hero-product-card-${index + 1}`);
-      card.setAttribute("aria-hidden", "true");
-      card.append(productImage(product, { eager: true }));
-      const body = element("div", "hero-product-card-body");
-      body.append(
-        element("span", "hero-product-category", product.category),
-        element("strong", "hero-product-name", product.name),
-        element("span", "hero-product-price", currencyFormatter.format(product.currentPrice)),
-      );
-      card.append(body);
-      return card;
-    }
-
-    function renderHeroProducts(products) {
-      const stack = document.querySelector("#hero-product-stack");
-      if (!stack) return;
-      const featured = products.filter((product) => product.featured);
-      const preview = [...featured, ...products.filter((product) => !product.featured)].slice(0, 3);
-      stack.replaceChildren(...preview.map(createHeroProductCard));
     }
 
     function renderFeatured(products) {
@@ -1088,7 +1068,6 @@ const CONFIG = {
     }
 
     function renderHome(products) {
-      renderHeroProducts(products);
       renderFeatured(products);
       renderCategories(products);
     }

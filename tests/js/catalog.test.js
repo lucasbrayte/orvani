@@ -2,6 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const vm = require("node:vm");
 
 require("../../script.js");
 const core = globalThis.OrvaniCore;
@@ -12,6 +13,80 @@ const currentHeaders = [
   "Texto do Botão", "Vídeo (URL YouTube)", "Imagem 1 *", "Imagem 2", "Imagem 3",
   "Imagem 4", "Ordem", "Destaque",
 ];
+
+class FakeNode {
+  constructor(tagName = "div") {
+    this.tagName = tagName.toUpperCase();
+    this.attributes = {};
+    this.children = [];
+    this.className = "";
+    this.dataset = {};
+    this.hidden = false;
+    this.replaceCount = 0;
+    this.style = {};
+    this.classList = {
+      add() {},
+      remove() {},
+      toggle() {},
+    };
+  }
+
+  addEventListener() {}
+
+  append(...children) {
+    this.children.push(...children);
+  }
+
+  replaceChildren(...children) {
+    this.replaceCount += 1;
+    this.children = children;
+  }
+
+  setAttribute(name, value) {
+    this.attributes[name] = String(value);
+  }
+}
+
+function loadBrowserApp() {
+  const nodes = {
+    hero: new FakeNode(),
+    featuredSection: new FakeNode("section"),
+    track: new FakeNode(),
+    controls: new FakeNode(),
+    indicators: new FakeNode(),
+    categories: new FakeNode(),
+  };
+  const selectors = new Map([
+    ["#hero-product-stack", nodes.hero],
+    ["#destaques", nodes.featuredSection],
+    ["#carousel-track", nodes.track],
+    ["#carousel-controls", nodes.controls],
+    ["#carousel-indicators", nodes.indicators],
+    ["#category-list", nodes.categories],
+  ]);
+  const document = {
+    body: { dataset: { page: "home" }, classList: { add() {} } },
+    hidden: false,
+    readyState: "loading",
+    addEventListener() {},
+    createElement: (tagName) => new FakeNode(tagName),
+    querySelector: (selector) => selectors.get(selector) ?? null,
+  };
+  const context = {
+    console,
+    document,
+    location: { hash: "", pathname: "/", search: "" },
+    matchMedia: () => ({ matches: true, addEventListener() {}, removeEventListener() {} }),
+    requestAnimationFrame: (callback) => callback(),
+    setTimeout,
+    clearTimeout,
+  };
+  vm.runInNewContext(
+    fs.readFileSync(path.join(__dirname, "../../script.js"), "utf8"),
+    context,
+  );
+  return { app: context.OrvaniApp, core: context.OrvaniCore, nodes };
+}
 
 test("keeps the exact current twenty-column headers", () => {
   assert.deepEqual(core.CURRENT_SHEET_HEADERS, currentHeaders);
@@ -65,6 +140,27 @@ test("the production row adapter accepts only backend-safe integer orders", () =
   assert.equal(accepted.rejected.length, 0);
   assert.equal(rejected.products.length, 0);
   assert.deepEqual(rejected.rejected[0].fields, ["ordem"]);
+});
+
+test("home catalog rendering never replaces the institutional hero artwork", () => {
+  const { app, nodes } = loadBrowserApp();
+
+  app.renderHome([]);
+
+  assert.equal(nodes.hero.replaceCount, 0);
+});
+
+test("rendered catalog images explicitly preserve the whole image inside their frame", () => {
+  const { app, core, nodes } = loadBrowserApp();
+
+  app.renderHome([core.DEMO_PRODUCTS[0]]);
+  const slide = nodes.track.children[0];
+  const image = slide.children[0].children[0];
+
+  assert.deepEqual(
+    { objectFit: image.style.objectFit, objectPosition: image.style.objectPosition },
+    { objectFit: "contain", objectPosition: "center" },
+  );
 });
 
 test("parses strict real offer dates at local end of day", () => {
