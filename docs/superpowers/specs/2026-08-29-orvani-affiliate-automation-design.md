@@ -1,7 +1,7 @@
 # Automação do catálogo de afiliados da Orvani
 
-**Data:** 29 de agosto de 2026  
-**Status:** desenho aprovado em conversa, aguardando revisão do documento  
+**Data:** 29 de agosto de 2026
+**Status:** desenho aprovado em conversa, aguardando revisão do documento
 **Checkpoint anterior à automação:** `0dd7c88d57df2053b67f12720d8df13f573373de`
 
 ## Objetivo
