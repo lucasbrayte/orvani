@@ -52,8 +52,8 @@ def test_current_active_mercado_livre_and_shopee_rows_follow_read_only_contract(
             samples = _current_active_store_samples(client)
             registry = build_connector_registry(client)
             for partner_key, source_url in samples:
-                connector = registry[partner_key]
-                if not connector.supports(source_url):
+                connector = registry.select(source_url)
+                if connector.partner_key != partner_key:
                     _contract_failure()
                 outcome = _fetch_read_only(connector, source_url)
                 _assert_contract_outcome(outcome, partner_key)
