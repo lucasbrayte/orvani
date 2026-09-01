@@ -879,8 +879,8 @@ def _is_selected(record: ImportRecord, mode: str, now: datetime) -> bool:
         return bool(record.affiliate_url.strip())
     if record.status in {ImportStatus.REVISAR, ImportStatus.PRONTO_PARA_PUBLICAR}:
         category, same_identity = _persisted_outcome_classification(record)
-        if category in _TERMINAL_OUTCOME_CATEGORIES and same_identity:
-            return False
+        if category in _TERMINAL_OUTCOME_CATEGORIES:
+            return not same_identity
         return _is_yes(record.publish)
     if record.status is ImportStatus.PUBLICADO:
         category, same_identity = _persisted_outcome_classification(record)

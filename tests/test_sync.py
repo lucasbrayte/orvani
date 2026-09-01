@@ -982,6 +982,51 @@ def test_published_temporary_failure_is_not_drained_by_the_next_pending_run():
     assert second.items == () and registry.selected == []
 
 
+@pytest.mark.parametrize("outcome", [
+    ProductNotFoundError("not-found secret"),
+    _snapshot(available=False),
+])
+def test_changed_terminal_review_identity_reopens_collection_without_publication_approval(
+    outcome,
+):
+    """Catches a corrected link remaining stuck in REVISAR when Publicar is Não."""
+    from automation.sync import SyncEngine
+
+    record = _record(
+        status=ImportStatus.NOVO, publish="Não",
+        affiliate_url="https://meli.la/terminal-review",
+    )
+    first = SyncEngine(
+        _sync_gateway(records=(record,)),
+        _OutcomeRegistry({record.affiliate_url: outcome}),
+    ).run("pending", dry_run=True)
+    state_update = next(
+        update for update in first.planned_import_updates
+        if update.range_name == "'Importações'!Z2:AB2"
+    )
+    signature_update = next(
+        update for update in first.planned_import_updates
+        if update.range_name == "'Importações'!AD2:AE2"
+    )
+    changed = replace(
+        record, status=first.final_status(2), message=first.items[0].message,
+        consecutive_attempts=state_update.values[0][2],
+        data_signature=signature_update.values[0][0],
+        affiliate_url="https://meli.la/corrected-terminal-review",
+    )
+    registry = _OutcomeRegistry({
+        changed.affiliate_url: TemporaryFetchError("temporary after correction")
+    })
+
+    second = SyncEngine(
+        _sync_gateway(records=(changed,)), registry
+    ).run("pending", dry_run=True)
+
+    assert first.final_status(2) is ImportStatus.REVISAR
+    assert registry.selected == [changed.affiliate_url]
+    assert second.final_status(2) is ImportStatus.REVISAR
+
+
 def test_unchanged_snapshot_writes_only_state_and_verification_not_metadata():
     """Catches a stable data signature causing a full metadata rewrite."""
     from automation.sync import SyncEngine, _signature_envelope, _snapshot_signature
