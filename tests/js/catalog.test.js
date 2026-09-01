@@ -171,8 +171,11 @@ test("selects semantic Bootstrap Icons from normalized category names", () => {
     ["Beleza e Maquiagem", "bi bi-stars"],
     ["Brinquedos", "bi bi-balloon"],
     ["Moda", "bi bi-handbag"],
+    ["Casacos", "bi bi-handbag"],
     ["Perfumaria", "bi bi-droplet"],
     ["Instrumentos Musicais", "bi bi-music-note-beamed"],
+    ["Jogo de cama", "bi bi-house-heart"],
+    ["Bem Estar", "bi bi-heart-pulse"],
   ];
 
   assert.deepEqual(

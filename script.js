@@ -594,28 +594,37 @@ const CONFIG = {
   }
 
   const CATEGORY_ICON_RULES = Object.freeze([
-    [["eletrodomest"], "bi-house-gear"],
-    [["eletron", "informat", "computador", "celular", "telefon"], "bi-laptop"],
-    [["esporte", "lazer", "biciclet"], "bi-bicycle"],
-    [["beleza", "maquiag"], "bi-stars"],
-    [["brinqued", "infantil"], "bi-balloon"],
-    [["acessor", "relog", "joia"], "bi-watch"],
-    [["moda", "roupa", "calcado", "vestuario"], "bi-handbag"],
-    [["perfum"], "bi-droplet"],
-    [["instrument", "musica"], "bi-music-note-beamed"],
-    [["equipament", "ferrament"], "bi-tools"],
-    [["casa", "cozinha", "decorac", "moveis"], "bi-house-heart"],
-    [["game", "jogo"], "bi-controller"],
-    [["aplicativ", "software"], "bi-window"],
-    [["educa", "curso", "livro"], "bi-mortarboard"],
+    [["eletrodomestico", "eletrodomesticos"], "bi-house-gear"],
+    [["eletronico", "eletronicos", "informatica", "computador", "computadores", "celular", "celulares", "telefonia"], "bi-laptop"],
+    [["esporte", "esportes", "lazer", "bicicleta", "bicicletas"], "bi-bicycle"],
+    [["beleza", "maquiagem"], "bi-stars"],
+    [["brinquedo", "brinquedos", "infantil"], "bi-balloon"],
+    [["acessorio", "acessorios", "relogio", "relogios", "joia", "joias"], "bi-watch"],
+    [["moda", "roupa", "roupas", "calcado", "calcados", "vestuario", "casaco", "casacos"], "bi-handbag"],
+    [["perfume", "perfumes", "perfumaria"], "bi-droplet"],
+    [["instrumento", "instrumentos", "musica", "musical", "musicais"], "bi-music-note-beamed"],
+    [["equipamento", "equipamentos", "ferramenta", "ferramentas"], "bi-tools"],
+    [["jogo-de-cama", "casa", "cozinha", "decoracao", "moveis"], "bi-house-heart"],
+    [["game", "games", "jogo", "jogos"], "bi-controller"],
+    [["aplicativo", "aplicativos", "software"], "bi-window"],
+    [["educacao", "curso", "cursos", "livro", "livros"], "bi-mortarboard"],
     [["saude", "fitness", "bem-estar"], "bi-heart-pulse"],
-    [["alimento", "mercado", "comida"], "bi-basket"],
+    [["alimento", "alimentos", "mercado", "comida"], "bi-basket"],
   ]);
 
+  function categoryHasKeyword(category, keyword) {
+    return (
+      category === keyword ||
+      category.startsWith(`${keyword}-`) ||
+      category.endsWith(`-${keyword}`) ||
+      category.includes(`-${keyword}-`)
+    );
+  }
+
   function categoryIconClass(value) {
-    const normalizedCategory = searchable(value);
+    const normalizedCategory = categorySlug(value);
     const rule = CATEGORY_ICON_RULES.find(([keywords]) =>
-      keywords.some((keyword) => normalizedCategory.includes(keyword)));
+      keywords.some((keyword) => categoryHasKeyword(normalizedCategory, keyword)));
     return `bi ${rule?.[1] ?? "bi-grid"}`;
   }
 
