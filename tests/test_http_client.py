@@ -188,6 +188,121 @@ def test_default_client_ignores_ambient_transport_settings_and_starts_cookie_fre
         client.close()
 
 
+class _RebindingConnectionTransport(httpx.BaseTransport):
+    def __init__(self):
+        self.connection_resolution_queries = []
+        self.requests = []
+
+    def handle_request(self, request):
+        connection_host = request.url.host
+        self.connection_resolution_queries.append(connection_host)
+        effective_address = {
+            "start.example": "127.0.0.1",
+            "redirect.example": "10.0.0.8",
+        }.get(connection_host, connection_host)
+        vetted_addresses = request.extensions.get("orvani.vetted_addresses", ())
+        if effective_address not in vetted_addresses:
+            raise UnsafeUrlError("O transporte tentou usar um endereço não validado.")
+
+        self.requests.append(request)
+        original_host = request.headers["host"]
+        if original_host == "start.example":
+            return httpx.Response(
+                302,
+                headers={"location": "https://redirect.example/final"},
+            )
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/html"},
+            content=b"ok",
+        )
+
+
+def test_pins_every_redirect_hop_when_connection_dns_would_rebind():
+    validation_addresses = {
+        "start.example": "8.8.8.8",
+        "redirect.example": "2606:4700:4700::1111",
+    }
+    validation_queries = []
+
+    def validation_resolver(host, *_args):
+        validation_queries.append(host)
+        address = validation_addresses[host]
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, 443))]
+
+    transport = _RebindingConnectionTransport()
+    client = SafeHttpClient(transport=transport, dns_resolver=validation_resolver)
+
+    try:
+        response = client.get(
+            "https://start.example/item",
+            ("start.example", "redirect.example"),
+            ("text/html",),
+        )
+    finally:
+        client.close()
+
+    assert response.body == b"ok"
+    assert validation_queries == ["start.example", "redirect.example"]
+    assert transport.connection_resolution_queries == [
+        "8.8.8.8",
+        "2606:4700:4700::1111",
+    ]
+    assert [
+        request.extensions["orvani.vetted_addresses"]
+        for request in transport.requests
+    ] == [
+        ("8.8.8.8",),
+        ("2606:4700:4700::1111",),
+    ]
+    assert [request.headers["host"] for request in transport.requests] == [
+        "start.example",
+        "redirect.example",
+    ]
+    assert [request.extensions["sni_hostname"] for request in transport.requests] == [
+        "start.example",
+        "redirect.example",
+    ]
+
+
+class _AddressFallbackTransport(httpx.BaseTransport):
+    def __init__(self):
+        self.connection_hosts = []
+
+    def handle_request(self, request):
+        self.connection_hosts.append(request.url.host)
+        if request.url.host == "8.8.8.8":
+            raise httpx.ConnectError("first address unavailable", request=request)
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/html"},
+            content=b"ok",
+        )
+
+
+def test_tries_only_vetted_addresses_when_the_first_connection_fails():
+    def resolver(*_args):
+        return [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 443)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("1.1.1.1", 443)),
+        ]
+
+    transport = _AddressFallbackTransport()
+    client = SafeHttpClient(transport=transport, dns_resolver=resolver)
+
+    try:
+        response = client.get(
+            "https://example.com/item",
+            ("example.com",),
+            ("text/html",),
+        )
+    finally:
+        client.close()
+
+    assert response.body == b"ok"
+    assert transport.connection_hosts == ["8.8.8.8", "1.1.1.1"]
+
+
 def _cookie_jar_snapshot(cookies):
     return tuple(
         tuple(sorted(vars(cookie).items(), key=lambda item: item[0]))

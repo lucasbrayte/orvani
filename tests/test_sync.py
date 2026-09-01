@@ -337,6 +337,7 @@ def test_sync_engine_rejects_non_boolean_dry_run_before_reading_sheets(dry_run):
 
 @pytest.mark.parametrize("column,value", [
     (1, True), (2, "Talvez"), (3, "talvez"), (4, -1), (5, "Manual"),
+    (4, "1.5"), (4, 1.5), (4, 9_007_199_254_740_992),
     (15, "149.90"), (25, "REVIEW"), (27, -1), (30, []),
 ])
 def test_sync_engine_aborts_before_fetch_for_malformed_import_scalar(column, value):
@@ -356,7 +357,8 @@ def test_sync_engine_aborts_before_fetch_for_malformed_import_scalar(column, val
 
 @pytest.mark.parametrize("column,value", [
     (0, True), (7, "199.90"), (8, float("nan")), (10, 1),
-    (10, "2026-09-01junk"), (18, -1), (19, False),
+    (10, "2026-09-01junk"), (18, -1), (18, "1.5"), (18, 1.5),
+    (18, 9_007_199_254_740_992), (19, False),
 ])
 def test_sync_engine_aborts_before_fetch_for_malformed_product_scalar(column, value):
     """Catches a malformed catalog row being ignored or overwritten later."""
@@ -469,7 +471,6 @@ def test_two_approved_imports_for_one_external_identity_plan_one_product_row_wri
     ("  Mercado Livre  ", "mercado_livre", "MLB1234567890", "https://www.mercadolivre.com.br/item/MLB1234567890", "https://meli.la/new-link"),
     (" SHOPEE ", "shopee", "123.456", "https://shopee.com.br/item-i.123.456", "https://s.shopee.com.br/new-link"),
     (" sheín ", "shein", "123", "https://br.shein.com/product-p-123.html", "https://br.shein.com/new-link"),
-    ("TikTok Shop", "tiktok_shop", "123", "https://shop.tiktok.test/product/123", "https://shop.tiktok.test/new-link"),
 ])
 def test_product_identity_reconstructed_from_partner_alias_prevents_append(display_partner, snapshot_partner, external_id, existing_url, current_url):
     """Catches losing safely reconstructible existing identities during adoption."""
@@ -504,6 +505,19 @@ def test_mercado_catalog_path_is_preserved_without_becoming_an_external_item_id(
     assert _reconstruct_product_identity(
         "Mercado Livre", "https://www.mercadolivre.com.br/p/MLB1234"
     ) == (None, "MLB1234")
+
+
+@pytest.mark.parametrize("partner,url", [
+    ("Mercado Livre", "https://evil.example/item/MLB123456"),
+    ("Shopee", "https://evil.example/product/123/456"),
+    ("SHEIN", "https://evil.example/product-p-123.html"),
+    ("TikTok Shop", "https://shop.tiktok.test/product/123"),
+])
+def test_product_identity_is_never_reconstructed_from_an_unapproved_partner_host(partner, url):
+    """Catches ID-shaped paths bypassing the configured partner allowlist."""
+    from automation.sync import _reconstruct_product_identity
+
+    assert _reconstruct_product_identity(partner, url) == (None, None)
 
 
 def test_catalog_id_is_not_a_match_key_for_distinct_external_items():
@@ -616,25 +630,47 @@ def test_pending_selects_new_and_stale_processing_but_not_fresh_processing():
     assert [item.row_number for item in report.items] == [2, 3]
 
 
-def test_pending_retries_attention_and_error_only_below_three_attempts():
-    """Catches exhausted failures being retried forever."""
+def test_pending_retries_only_classified_temporary_attention_below_three_attempts():
+    """Catches an arbitrary ATENÇÃO row being treated as a temporary retry."""
     from automation.sync import SyncEngine
 
-    base = _record(status=ImportStatus.ATENCAO, affiliate_url="https://meli.la/attention-2", consecutive_attempts=2)
-    retry_error = replace(base, automation_id="error", status=ImportStatus.ERRO, affiliate_url="https://meli.la/error-1", consecutive_attempts=1)
-    exhausted = replace(base, automation_id="done", affiliate_url="https://meli.la/attention-3", consecutive_attempts=3)
-    outcomes = {
-        base.affiliate_url: TemporaryFetchError("temporary"),
-        retry_error.affiliate_url: TemporaryFetchError("temporary"),
-    }
-    registry = _OutcomeRegistry(outcomes)
+    source = _record(
+        status=ImportStatus.NOVO, publish="Não",
+        affiliate_url="https://meli.la/temporary-source", consecutive_attempts=0,
+    )
+    first = SyncEngine(
+        _sync_gateway(records=(source,)),
+        _OutcomeRegistry({source.affiliate_url: TemporaryFetchError("temporary")}),
+    ).run("pending", dry_run=True)
+    signature_update = next(
+        update for update in first.planned_import_updates
+        if update.range_name == "'Importações'!AD2:AE2"
+    )
+    temporary = replace(
+        source, status=ImportStatus.ATENCAO,
+        message="Falha temporária na coleta.", consecutive_attempts=1,
+        data_signature=signature_update.values[0][0],
+    )
+    unclassified = replace(
+        temporary, automation_id="unclassified",
+        affiliate_url="https://meli.la/unclassified", data_signature="",
+    )
+    exhausted = replace(
+        temporary, automation_id="exhausted",
+        consecutive_attempts=3,
+    )
+    registry = _OutcomeRegistry({
+        temporary.affiliate_url: TemporaryFetchError("temporary"),
+    })
 
-    report = SyncEngine(_sync_gateway(records=(base, retry_error, exhausted)), registry).run(
+    report = SyncEngine(
+        _sync_gateway(records=(temporary, unclassified, exhausted)), registry
+    ).run(
         "pending", dry_run=True
     )
 
-    assert registry.selected == [base.affiliate_url, retry_error.affiliate_url]
-    assert [item.row_number for item in report.items] == [2, 3]
+    assert registry.selected == [temporary.affiliate_url]
+    assert [item.row_number for item in report.items] == [2]
 
 
 def test_pending_conversion_requires_an_affiliate_link_before_refetch():
@@ -794,7 +830,7 @@ def test_store_blocking_ends_attention_and_preserves_all_product_metadata_column
 
     assert report.final_status(2) is ImportStatus.ATENCAO
     assert [update.range_name for update in report.planned_import_updates] == [
-        "'Importações'!Z2:AB2", "'Importações'!AE2:AE2",
+        "'Importações'!Z2:AB2", "'Importações'!AD2:AE2",
     ]
     assert report.planned_import_updates[0].values[0][2] == 2
     assert report.planned_product_updates == ()
@@ -833,7 +869,9 @@ def test_confirmed_not_found_preserves_publication_and_requests_review(initial, 
 
     assert report.final_status(2) is expected
     assert report.planned_product_updates == ()
-    assert all(update.range_name.endswith(("Z2:AB2", "AE2:AE2")) for update in report.planned_import_updates)
+    assert [update.range_name for update in report.planned_import_updates] == [
+        "'Importações'!Z2:AB2", "'Importações'!AD2:AE2",
+    ]
 
 
 @pytest.mark.parametrize("initial,mode,expected", [
@@ -852,6 +890,96 @@ def test_snapshot_marked_unavailable_never_changes_the_published_product(initial
 
     assert report.final_status(2) is expected
     assert report.planned_product_updates == ()
+
+
+@pytest.mark.parametrize("outcome", [
+    BlockedByStoreError("blocked secret"),
+    ProductNotFoundError("not-found secret"),
+    _snapshot(available=False),
+])
+@pytest.mark.parametrize(("changed_field", "changed_value"), [
+    ("affiliate_url", "https://meli.la/human-change"),
+    ("partner", "Shopee"),
+    ("external_id", "MLB999999"),
+])
+def test_terminal_attention_waits_until_an_identity_input_changes(
+    outcome, changed_field, changed_value
+):
+    """Catches blocked/unavailable catalog rows being polled every pending run."""
+    from automation.sync import SyncEngine
+
+    record = _record(
+        status=ImportStatus.PUBLICADO, publish="Sim",
+        affiliate_url="https://meli.la/terminal",
+    )
+    first = SyncEngine(
+        _sync_gateway(records=(record,)), _OutcomeRegistry({record.affiliate_url: outcome})
+    ).run("full", dry_run=True)
+    state_update = next(
+        update for update in first.planned_import_updates
+        if update.range_name == "'Importações'!Z2:AB2"
+    )
+    signature_update = next(
+        update for update in first.planned_import_updates
+        if update.range_name == "'Importações'!AD2:AE2"
+    )
+    persisted = replace(
+        record, status=first.final_status(2), message=first.items[0].message,
+        consecutive_attempts=state_update.values[0][2],
+        data_signature=signature_update.values[0][0],
+    )
+
+    unchanged_registry = _OutcomeRegistry({})
+    unchanged = SyncEngine(
+        _sync_gateway(records=(persisted,)), unchanged_registry
+    ).run("pending", dry_run=True)
+
+    changed = replace(persisted, **{changed_field: changed_value})
+    changed_registry = _OutcomeRegistry({
+        changed.affiliate_url: TemporaryFetchError("temporary after human change")
+    })
+    changed_report = SyncEngine(
+        _sync_gateway(records=(changed,)), changed_registry
+    ).run("pending", dry_run=True)
+
+    assert unchanged.items == () and unchanged_registry.selected == []
+    assert changed_registry.selected == [changed.affiliate_url]
+    assert changed_report.final_status(2) is ImportStatus.ATENCAO
+
+
+def test_published_temporary_failure_is_not_drained_by_the_next_pending_run():
+    """Catches an outcome envelope looking like a changed link on PUBLICADO."""
+    from automation.sync import SyncEngine
+
+    record = _record(
+        status=ImportStatus.PUBLICADO, publish="Sim",
+        affiliate_url="https://meli.la/published-temporary",
+    )
+    first = SyncEngine(
+        _sync_gateway(records=(record,)),
+        _OutcomeRegistry({record.affiliate_url: TemporaryFetchError("temporary")}),
+    ).run("full", dry_run=True)
+    state_update = next(
+        update for update in first.planned_import_updates
+        if update.range_name == "'Importações'!Z2:AB2"
+    )
+    signature_update = next(
+        update for update in first.planned_import_updates
+        if update.range_name == "'Importações'!AD2:AE2"
+    )
+    persisted = replace(
+        record, status=first.final_status(2), message=first.items[0].message,
+        consecutive_attempts=state_update.values[0][2],
+        data_signature=signature_update.values[0][0],
+    )
+    registry = _OutcomeRegistry({})
+
+    second = SyncEngine(_sync_gateway(records=(persisted,)), registry).run(
+        "pending", dry_run=True
+    )
+
+    assert first.final_status(2) is ImportStatus.PUBLICADO
+    assert second.items == () and registry.selected == []
 
 
 def test_unchanged_snapshot_writes_only_state_and_verification_not_metadata():
@@ -1523,6 +1651,38 @@ def test_mapping_gates_active_and_keeps_the_header_order_and_typed_expiry():
     )
 
 
+@pytest.mark.parametrize("order", ["1.5", "9007199254740992", "-1"])
+def test_mapping_rejects_an_order_the_real_csv_adapter_cannot_normalize(order):
+    """Catches a backend-written Ordem making the published row disappear."""
+    with pytest.raises(InvalidProductDataError):
+        map_snapshot_to_product_values(_snapshot(), _record(order=order), None)
+
+
+def test_mapping_accepts_the_largest_nonnegative_safe_integer_order():
+    values = map_snapshot_to_product_values(
+        _snapshot(), _record(order="9007199254740991"), None
+    )
+
+    assert values[18] == "9007199254740991"
+
+
+def test_sync_normalizes_an_integral_sheet_number_before_publication():
+    """Catches a Sheets numeric 1.0 becoming the frontend-invalid text ``1.0``."""
+    from automation.sync import SyncEngine, _record_values
+
+    imported = _record(status=ImportStatus.NOVO, publish="Sim", data_signature="")
+    raw = list(_record_values(imported))
+    raw[4] = 1.0
+    registry = _OutcomeRegistry({imported.affiliate_url: _snapshot()})
+
+    report = SyncEngine(
+        _sync_gateway(raw_imports=[raw]), registry
+    ).run("pending", dry_run=True)
+
+    assert report.final_status(2) is ImportStatus.PUBLICADO
+    assert report.planned_product_updates[0].values[0][18] == "1"
+
+
 def test_data_signature_is_canonical_for_nested_mapping_decimal_and_timezone_equivalents():
     utc = datetime(2026, 8, 30, 15, 0, tzinfo=UTC)
     offset = utc.astimezone(timezone(timedelta(hours=-3)))
@@ -1606,6 +1766,50 @@ def test_match_falls_through_to_current_link_then_normalized_partner_external_id
     assert find_product_match(replace(record, affiliate_url=""), (id_match,)) is id_match
 
 
+@pytest.mark.parametrize("target_field", ["last_published_url", "affiliate_url"])
+def test_match_never_adopts_a_cross_partner_row_by_link(target_field):
+    """Catches a Mercado import overwriting a Shopee row through an edited link."""
+    target = "https://s.shopee.com.br/cross-partner"
+    record = replace(
+        _record(last_published_url="", affiliate_url="https://meli.la/current"),
+        **{target_field: target},
+    )
+    shopee = _row(
+        7, partner="Shopee", affiliate_url=target,
+        reconstructed_external_id="123.456",
+    )
+
+    assert find_product_match(record, (shopee,)) is None
+
+
+@pytest.mark.parametrize("target_field", ["last_published_url", "affiliate_url"])
+def test_match_never_adopts_an_unapproved_host_by_link(target_field):
+    """Catches a self-allowlisted arbitrary HTTPS host becoming an adoption key."""
+    target = "https://evil.example/item/MLB123"
+    record = replace(
+        _record(last_published_url="", affiliate_url="https://meli.la/current"),
+        **{target_field: target},
+    )
+    poisoned = _row(7, partner="Mercado Livre", affiliate_url=target)
+
+    assert find_product_match(record, (poisoned,)) is None
+
+
+def test_match_never_trusts_a_reconstructed_id_from_an_unapproved_candidate_host():
+    """Catches a forged Produtos identity bypassing URL-tier host validation."""
+    record = _record(
+        last_published_url="", affiliate_url="", partner="mercado_livre",
+        external_id="MLB123",
+    )
+    poisoned = _row(
+        7, partner="Mercado Livre",
+        affiliate_url="https://evil.example/item/MLB123",
+        reconstructed_external_id="MLB123",
+    )
+
+    assert find_product_match(record, (poisoned,)) is None
+
+
 def test_match_never_uses_substrings_or_empty_identity_values():
     record = _record(last_published_url="", affiliate_url="", external_id="MLB123")
     lookalike = _row(7, reconstructed_external_id="xMLB123x", affiliate_url="https://meli.la/lookalike")
@@ -1658,6 +1862,23 @@ def test_publication_plans_an_update_for_adoption_without_erasing_preserved_valu
     assert len(update.values[0]) == 20
     assert update.values[0][11] == "https://meli.la/current?b=2&a=1"
     assert update.values[0][13] == "https://youtube.example/watch?v=keep"
+
+
+def test_publication_appends_instead_of_overwriting_a_cross_partner_last_link():
+    """Catches unsafe adoption reaching an observable Produtos overwrite plan."""
+    target = "https://s.shopee.com.br/unrelated"
+    record = _record(
+        last_published_url=target, affiliate_url="https://meli.la/current?b=2&a=1",
+        partner="mercado_livre", external_id="MLB123",
+    )
+    unrelated = _row(
+        7, partner="Shopee", affiliate_url=target,
+        reconstructed_external_id="999.888",
+    )
+
+    update, = plan_publication(_snapshot(), record, (unrelated,))
+
+    assert update.range_name == "'Produtos'!A8:T8"
 
 
 def test_publication_plans_the_next_row_for_create_and_no_writes_for_noop_or_unapproved_record():

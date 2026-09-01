@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import re
 import socket
 import time
@@ -43,6 +44,7 @@ _REQUEST_TIMEOUT = httpx.Timeout(
     write=READ_TIMEOUT_SECONDS,
     pool=CONNECT_TIMEOUT_SECONDS,
 )
+_VETTED_ADDRESSES_EXTENSION = "orvani.vetted_addresses"
 _RedirectHostPolicy = Callable[[str], bool]
 _GOOGLE_SHEETS_EXPORT_REDIRECT_HOST = re.compile(
     r"doc-[a-z0-9](?:[a-z0-9-]{0,50}[a-z0-9])?-sheets\.googleusercontent\.com\Z"
@@ -82,6 +84,42 @@ class _BorrowedTransport(httpx.BaseTransport):
         """The caller, not the safe wrapper, owns the wrapped transport."""
 
 
+class _AddressPinnedTransport(httpx.BaseTransport):
+    """Connect through vetted numeric addresses while retaining HTTPS authority."""
+
+    def __init__(self, transport: httpx.BaseTransport) -> None:
+        self._transport = transport
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        addresses = _validated_vetted_addresses(request)
+        original_hostname = request.url.raw_host.decode("ascii")
+        headers = httpx.Headers(request.headers)
+        headers["Host"] = request.url.netloc.decode("ascii")
+        headers["Connection"] = "close"
+        extensions = dict(request.extensions)
+        extensions["sni_hostname"] = original_hostname
+
+        last_connect_error: httpx.ConnectError | httpx.ConnectTimeout | None = None
+        for address in addresses:
+            pinned_request = httpx.Request(
+                method=request.method,
+                url=request.url.copy_with(host=address),
+                headers=headers.raw,
+                stream=request.stream,
+                extensions=extensions,
+            )
+            try:
+                return self._transport.handle_request(pinned_request)
+            except (httpx.ConnectError, httpx.ConnectTimeout) as error:
+                last_connect_error = error
+        if last_connect_error is not None:
+            raise last_connect_error
+        raise UnsafeUrlError("Requisição sem endereço validado.")
+
+    def close(self) -> None:
+        self._transport.close()
+
+
 class SafeHttpClient:
     """Fetch allowed HTTPS URLs without automatic redirects or unbounded bodies."""
 
@@ -96,9 +134,20 @@ class SafeHttpClient:
         if client is not None and transport is not None:
             raise ValueError("Use client ou transport, não ambos.")
         if client is not None:
-            transport = _borrowed_client_transport(client)
+            base_transport = _client_base_transport(client)
+            pin_addresses = type(base_transport) is not httpx.MockTransport
+            transport = _BorrowedTransport(base_transport)
         elif transport is not None:
+            pin_addresses = type(transport) is not httpx.MockTransport
             transport = _BorrowedTransport(transport)
+        else:
+            pin_addresses = True
+            transport = httpx.HTTPTransport(
+                trust_env=False,
+                limits=httpx.Limits(max_keepalive_connections=0),
+            )
+        if pin_addresses:
+            transport = _AddressPinnedTransport(transport)
         self._client = httpx.Client(
             transport=transport,
             follow_redirects=False,
@@ -157,14 +206,14 @@ class SafeHttpClient:
         redirect_count = 0
 
         while True:
-            self._validate_request_url(
+            vetted_addresses = self._validate_request_url(
                 current_url,
                 allowed_hosts,
                 redirected=redirect_count > 0,
                 redirect_host_policy=redirect_host_policy,
             )
             try:
-                with self._cookie_free_stream(current_url) as response:
+                with self._cookie_free_stream(current_url, vetted_addresses) as response:
                     if response.status_code in _REDIRECT_STATUS_CODES:
                         current_url = self._next_redirect_url(response, current_url, redirect_count)
                         redirect_count += 1
@@ -189,7 +238,7 @@ class SafeHttpClient:
         *,
         redirected: bool,
         redirect_host_policy: _RedirectHostPolicy | None,
-    ) -> None:
+    ) -> tuple[str, ...]:
         error_type = UnsafeRedirectError if redirected else UnsafeUrlError
         try:
             host = urlsplit(url).hostname
@@ -205,20 +254,30 @@ class SafeHttpClient:
         ):
             raise error_type("URL insegura.")
         try:
-            resolve_public_addresses(host, resolver=self._dns_resolver)
+            return resolve_public_addresses(host, resolver=self._dns_resolver)
         except UnsafeUrlError as error:
             if redirected:
                 raise UnsafeRedirectError("Redirecionamento com DNS inseguro.") from error
             raise
 
-    def _build_cookie_free_request(self, url: str) -> httpx.Response:
+    def _build_cookie_free_request(
+        self,
+        url: str,
+        vetted_addresses: tuple[str, ...],
+    ) -> httpx.Response:
         request = self._client.build_request("GET", url, timeout=_REQUEST_TIMEOUT)
         request.headers.pop("cookie", None)
+        request.extensions[_VETTED_ADDRESSES_EXTENSION] = vetted_addresses
+        request.extensions["sni_hostname"] = request.url.raw_host.decode("ascii")
         return self._client.send(request, stream=True, follow_redirects=False)
 
     @contextmanager
-    def _cookie_free_stream(self, url: str) -> Iterator[httpx.Response]:
-        response = self._build_cookie_free_request(url)
+    def _cookie_free_stream(
+        self,
+        url: str,
+        vetted_addresses: tuple[str, ...],
+    ) -> Iterator[httpx.Response]:
+        response = self._build_cookie_free_request(url, vetted_addresses)
         try:
             yield response
         finally:
@@ -263,8 +322,8 @@ def _redirect_host_is_allowed(
         return False
 
 
-def _borrowed_client_transport(client: httpx.Client) -> httpx.BaseTransport:
-    """Create an owned client boundary over an HTTPX client's base transport.
+def _client_base_transport(client: httpx.Client) -> httpx.BaseTransport:
+    """Return an HTTPX client's base transport for the borrowed-client path.
 
     HTTPX exposes no public transport accessor. This compatibility path reads
     only the base transport, never sends through or changes the injected client.
@@ -273,7 +332,35 @@ def _borrowed_client_transport(client: httpx.Client) -> httpx.BaseTransport:
     transport = getattr(client, "_transport", None)
     if not isinstance(transport, httpx.BaseTransport):
         raise ValueError("Cliente HTTP sem transporte compatível.")
-    return _BorrowedTransport(transport)
+    return transport
+
+
+def _validated_vetted_addresses(request: httpx.Request) -> tuple[str, ...]:
+    value = request.extensions.get(_VETTED_ADDRESSES_EXTENSION)
+    if type(value) is not tuple or not value:
+        raise UnsafeUrlError("Requisição sem endereço validado.")
+
+    addresses: list[str] = []
+    try:
+        for address in value:
+            if type(address) is not str:
+                raise ValueError("endereço não textual")
+            parsed = ipaddress.ip_address(address)
+            if str(parsed) != address or (
+                not parsed.is_global
+                or parsed.is_private
+                or parsed.is_loopback
+                or parsed.is_link_local
+                or (isinstance(parsed, ipaddress.IPv6Address) and parsed.is_site_local)
+                or parsed.is_multicast
+                or parsed.is_reserved
+                or parsed.is_unspecified
+            ):
+                raise ValueError("endereço não global")
+            addresses.append(address)
+    except ValueError as error:
+        raise UnsafeUrlError("Requisição com endereço não validado.") from error
+    return tuple(addresses)
 
 
 def _read_bounded_body(response: httpx.Response) -> bytes:

@@ -50,6 +50,23 @@ test("parses only blank or nonnegative integer orders", () => {
   }
 });
 
+test("the production row adapter accepts only backend-safe integer orders", () => {
+  const fixture = fs.readFileSync(path.join(__dirname, "../fixtures/catalog-current.csv"), "utf8");
+  const [, source] = core.parseCsv(fixture);
+  const safeIntegerRow = source.slice();
+  safeIntegerRow[18] = "9007199254740991";
+  const fractionalRow = source.slice();
+  fractionalRow[18] = "1.5";
+
+  const accepted = core.normalizeRows([currentHeaders, safeIntegerRow]);
+  const rejected = core.normalizeRows([currentHeaders, fractionalRow]);
+
+  assert.equal(accepted.products[0].order, Number.MAX_SAFE_INTEGER);
+  assert.equal(accepted.rejected.length, 0);
+  assert.equal(rejected.products.length, 0);
+  assert.deepEqual(rejected.rejected[0].fields, ["ordem"]);
+});
+
 test("parses strict real offer dates at local end of day", () => {
   const iso = core.parseOfferDate("2026-08-29");
   const brazilian = core.parseOfferDate("29/08/2026");

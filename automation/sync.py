@@ -71,10 +71,13 @@ _ISO_TIMESTAMP = re.compile(
 )
 _PROCESSING_TIMEOUT = timedelta(minutes=30)
 _MAX_WORKERS = 4
+_MAX_SAFE_INTEGER = (1 << 53) - 1
 _PERMANENT_ERROR_MESSAGES = {
     "unsupported_url": "URL incompatível com os parceiros autorizados.",
     "invalid_product_data": "Dados públicos do produto são inválidos.",
 }
+_OUTCOME_CATEGORIES = frozenset({"temporary", "blocked", "not_found", "unavailable"})
+_TERMINAL_OUTCOME_CATEGORIES = frozenset({"blocked", "not_found", "unavailable"})
 
 
 def calculate_discount(current: Decimal, previous: Decimal) -> int:
@@ -146,6 +149,11 @@ def map_snapshot_to_product_values(
 
     images = _mapped_images(snapshot.images, existing)
     button_text = _button_text(import_record.button_text, snapshot.partner)
+    try:
+        order = _safe_order_text(import_record.order)
+    except (ArithmeticError, TypeError, ValueError):
+        raise InvalidProductDataError("A ordem do produto é inválida.") from None
+
     values = (
         "Sim" if _is_yes(import_record.active) and _is_yes(import_record.publish) else "Não",
         _required_text(snapshot.product_type),
@@ -162,7 +170,7 @@ def map_snapshot_to_product_values(
         button_text,
         existing.video_url if existing is not None else "",
         *images,
-        _text_or_blank(import_record.order),
+        order,
         _text_or_blank(import_record.featured),
     )
     if len(values) != len(PRODUCTS_HEADERS):
@@ -179,26 +187,33 @@ def find_product_match(
     if not isinstance(import_record, ImportRecord):
         raise InvalidProductDataError("O registro de Importações é inválido.")
     rows = _validated_product_rows(product_rows)
+    partner = _canonical_partner_key(import_record.partner)
+    if not partner:
+        return None
 
     for target in (import_record.last_published_url, import_record.affiliate_url):
-        normalized_target = _normalized_link_or_none(target)
+        normalized_target = _normalized_partner_link_or_none(target, partner)
         if normalized_target is None:
             continue
         matches = tuple(
             row for row in rows
-            if _normalized_link_or_none(row.affiliate_url) == normalized_target
+            if _canonical_partner_key(row.partner) == partner
+            and _normalized_partner_link_or_none(row.affiliate_url, partner) == normalized_target
         )
         match = _unique_match(matches)
         if match is not None:
             return match
 
-    partner = _canonical_partner_key(import_record.partner)
     external_id = _identity_part(import_record.external_id)
     if not partner or not external_id:
+        return None
+    affiliate_url = _text_or_blank(import_record.affiliate_url)
+    if affiliate_url and _normalized_partner_link_or_none(affiliate_url, partner) is None:
         return None
     matches = tuple(
         row for row in rows
         if _canonical_partner_key(row.partner) == partner
+        and _normalized_partner_link_or_none(row.affiliate_url, partner) is not None
         and _identity_part(row.reconstructed_external_id) == external_id
     )
     return _unique_match(matches)
@@ -387,6 +402,19 @@ def _normalized_link_or_none(value: Any) -> str | None:
         if parsed.hostname is None:
             return None
         validate_https_url(value, (parsed.hostname,))
+        return normalize_url_for_signature(value)
+    except Exception:
+        return None
+
+
+def _normalized_partner_link_or_none(value: Any, partner: str) -> str | None:
+    configuration = PARTNERS.get(partner)
+    if configuration is None or not configuration.allowed_hosts:
+        return None
+    try:
+        if not isinstance(value, str) or not value.strip():
+            return None
+        validate_https_url(value, configuration.allowed_hosts)
         return normalize_url_for_signature(value)
     except Exception:
         return None
@@ -625,6 +653,7 @@ class SyncEngine:
             if default is not None:
                 normalized = list(default.values[0])
                 defaults.append(default)
+            normalized[4] = _safe_order_text(normalized[4])
             try:
                 record, id_only = ImportRecord.from_sheet_row(offset, normalized)
             except (ValueError, TypeError, ArithmeticError):
@@ -720,17 +749,31 @@ class SyncEngine:
         if isinstance(outcome, TemporaryFetchError):
             attempts = record.consecutive_attempts + 1
             status = ImportStatus.ATENCAO if attempts >= 3 else record.status
-            target = replace(record, status=status, message="Falha temporária na coleta.", consecutive_attempts=attempts)
-            changes = _state_updates(target, now, worksheet=self._imports)
+            target = replace(
+                record, status=status, message="Falha temporária na coleta.",
+                consecutive_attempts=attempts,
+                data_signature=_outcome_signature_envelope(record, "temporary"),
+            )
+            changes = _classified_state_updates(target, now, worksheet=self._imports)
             return _result(record, target, bool(changes), False), changes, ()
         if isinstance(outcome, BlockedByStoreError):
-            target = replace(record, status=ImportStatus.ATENCAO, message="A loja bloqueou a coleta pública.", consecutive_attempts=record.consecutive_attempts + 1)
-            changes = _state_updates(target, now, worksheet=self._imports)
+            target = replace(
+                record, status=ImportStatus.ATENCAO,
+                message="A loja bloqueou a coleta pública.",
+                consecutive_attempts=record.consecutive_attempts + 1,
+                data_signature=_outcome_signature_envelope(record, "blocked"),
+            )
+            changes = _classified_state_updates(target, now, worksheet=self._imports)
             return _result(record, target, bool(changes), False), changes, ()
         if isinstance(outcome, ProductNotFoundError):
             status = ImportStatus.ATENCAO if record.status is ImportStatus.PUBLICADO else ImportStatus.REVISAR
-            target = replace(record, status=status, message="Produto indisponível para verificação.", consecutive_attempts=0)
-            changes = _state_updates(target, now, worksheet=self._imports)
+            target = replace(
+                record, status=status,
+                message="Produto indisponível para verificação.",
+                consecutive_attempts=0,
+                data_signature=_outcome_signature_envelope(record, "not_found"),
+            )
+            changes = _classified_state_updates(target, now, worksheet=self._imports)
             return _result(record, target, bool(changes), False), changes, ()
         if isinstance(outcome, (UnsupportedUrlError, InvalidProductDataError)):
             category = "unsupported_url" if isinstance(outcome, UnsupportedUrlError) else "invalid_product_data"
@@ -743,15 +786,25 @@ class SyncEngine:
             changes = _permanent_error_updates(target, now, worksheet=self._imports)
             return _result(record, target, bool(changes), False), changes, ()
         if not isinstance(outcome, ProductSnapshot):
-            target = replace(record, status=ImportStatus.ATENCAO, message="Falha temporária na coleta.", consecutive_attempts=record.consecutive_attempts + 1)
-            changes = _state_updates(target, now, worksheet=self._imports)
+            target = replace(
+                record, status=ImportStatus.ATENCAO,
+                message="Falha temporária na coleta.",
+                consecutive_attempts=record.consecutive_attempts + 1,
+                data_signature=_outcome_signature_envelope(record, "temporary"),
+            )
+            changes = _classified_state_updates(target, now, worksheet=self._imports)
             return _result(record, target, bool(changes), False), changes, ()
 
         snapshot, partial = _merge_snapshot(record, outcome)
         if snapshot.available is False:
             status = ImportStatus.ATENCAO if record.status is ImportStatus.PUBLICADO else ImportStatus.REVISAR
-            target = replace(record, status=status, message="Produto indisponível para verificação.", consecutive_attempts=0)
-            changes = _state_updates(target, now, worksheet=self._imports)
+            target = replace(
+                record, status=status,
+                message="Produto indisponível para verificação.",
+                consecutive_attempts=0,
+                data_signature=_outcome_signature_envelope(record, "unavailable"),
+            )
+            changes = _classified_state_updates(target, now, worksheet=self._imports)
             return _result(record, target, bool(changes), False), changes, ()
         signature = _snapshot_signature(snapshot)
         _old_link, old_data = _signature_parts(record.data_signature)
@@ -810,7 +863,12 @@ def _is_selected(record: ImportRecord, mode: str, now: datetime) -> bool:
     if record.status is ImportStatus.NOVO or stale:
         return True
     if record.status is ImportStatus.ATENCAO:
-        return record.consecutive_attempts < 3
+        category, same_identity = _persisted_outcome_classification(record)
+        if category is None:
+            return False
+        if not same_identity:
+            return True
+        return category == "temporary" and record.consecutive_attempts < 3
     if record.status is ImportStatus.ERRO:
         old_link, old_data = _signature_parts(record.data_signature)
         return (
@@ -820,7 +878,14 @@ def _is_selected(record: ImportRecord, mode: str, now: datetime) -> bool:
     if record.status is ImportStatus.AGUARDANDO_CONVERSAO:
         return bool(record.affiliate_url.strip())
     if record.status in {ImportStatus.REVISAR, ImportStatus.PRONTO_PARA_PUBLICAR}:
+        category, same_identity = _persisted_outcome_classification(record)
+        if category in _TERMINAL_OUTCOME_CATEGORIES and same_identity:
+            return False
         return _is_yes(record.publish)
+    if record.status is ImportStatus.PUBLICADO:
+        category, same_identity = _persisted_outcome_classification(record)
+        if category is not None:
+            return not same_identity
     try:
         old_link, _old_data = _signature_parts(record.data_signature)
         return old_link != link_signature(_fetch_url(record))
@@ -964,12 +1029,65 @@ def _signature_envelope(record: ImportRecord, data_hash: str) -> str:
     return f"v1:{_record_link_hash(record)}:{data_hash}"
 
 
+def _outcome_signature_envelope(record: ImportRecord, category: str) -> str:
+    return ":".join((
+        "v2",
+        _record_link_hash(record),
+        _record_outcome_identity_hash(record),
+        _outcome_hash(category),
+    ))
+
+
+def _persisted_outcome_classification(record: ImportRecord) -> tuple[str | None, bool]:
+    stored_link, stored_identity, stored_outcome = _outcome_signature_parts(
+        record.data_signature
+    )
+    categories = {
+        _outcome_hash(category): category for category in _OUTCOME_CATEGORIES
+    }
+    category = categories.get(stored_outcome)
+    if category is None:
+        return None, False
+    return category, (
+        stored_link == _record_link_hash(record)
+        and stored_identity == _record_outcome_identity_hash(record)
+    )
+
+
+def _outcome_signature_parts(value: Any) -> tuple[str | None, str | None, str | None]:
+    if not isinstance(value, str):
+        return None, None, None
+    pieces = value.split(":")
+    if (
+        len(pieces) != 4
+        or pieces[0] != "v2"
+        or any(not re.fullmatch(r"[0-9a-f]{64}", piece) for piece in pieces[1:])
+    ):
+        return None, None, None
+    return pieces[1], pieces[2], pieces[3]
+
+
 def _record_link_hash(record: ImportRecord) -> str:
     value = _fetch_url(record)
     try:
         return link_signature(value)
     except UnsafeUrlError:
         return sha256(("invalid-link-v1\x00" + value).encode("utf-8")).hexdigest()
+
+
+def _record_outcome_identity_hash(record: ImportRecord) -> str:
+    identity = "\x00".join((
+        "outcome-identity-v1",
+        _canonical_partner_key(record.partner),
+        _identity_part(record.external_id),
+    ))
+    return sha256(identity.encode("utf-8")).hexdigest()
+
+
+def _outcome_hash(category: str) -> str:
+    if category not in _OUTCOME_CATEGORIES:
+        raise InvalidProductDataError("A categoria do resultado operacional é inválida.")
+    return sha256(("sync-outcome-v1\x00" + category).encode("ascii")).hexdigest()
 
 
 def _permanent_error_hash(category: str) -> str:
@@ -1023,6 +1141,13 @@ def _state_updates(record: ImportRecord, now: datetime, *, worksheet: str = IMPO
     return (
         SheetUpdate(_import_range(record.row_number, "Z", "AB", worksheet), ((record.status.value, record.message, record.consecutive_attempts),)),
         SheetUpdate(_import_range(record.row_number, "AE", "AE", worksheet), ((now,),)),
+    )
+
+
+def _classified_state_updates(record: ImportRecord, now: datetime, *, worksheet: str = IMPORT_WORKSHEET) -> tuple[SheetUpdate, ...]:
+    return (
+        SheetUpdate(_import_range(record.row_number, "Z", "AB", worksheet), ((record.status.value, record.message, record.consecutive_attempts),)),
+        SheetUpdate(_import_range(record.row_number, "AD", "AE", worksheet), ((record.data_signature, now),)),
     )
 
 
@@ -1165,7 +1290,10 @@ def validate_import_row(row: Sequence[Any]) -> None:
         raise SheetSchemaError("Uma linha de Importações é inválida.")
     if cells[25] not in (None, "", *(status.value for status in ImportStatus)):
         raise SheetSchemaError("Uma linha de Importações é inválida.")
-    _validate_nonnegative_number(cells[4], allow_decimal=True)
+    try:
+        _safe_order_text(cells[4])
+    except (ArithmeticError, TypeError, ValueError):
+        raise SheetSchemaError("Uma linha de Importações é inválida.") from None
     _validate_optional_price(cells[15])
     _validate_optional_price(cells[16])
     _validate_nonnegative_number(cells[17], allow_decimal=True)
@@ -1268,17 +1396,26 @@ def _product_text(value: Any) -> str:
 
 
 def _product_order(value: Any) -> str:
+    return _safe_order_text(value)
+
+
+def _safe_order_text(value: Any) -> str:
     if value in (None, ""):
         return ""
     if isinstance(value, str):
-        if not re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", value):
+        if re.fullmatch(r"[0-9]+", value) is None:
             raise TypeError("ordem inválida")
     elif isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
         raise TypeError("ordem inválida")
     decimal = Decimal(str(value))
-    if not decimal.is_finite() or decimal < 0:
+    if (
+        not decimal.is_finite()
+        or decimal < 0
+        or decimal != decimal.to_integral_value()
+        or decimal > _MAX_SAFE_INTEGER
+    ):
         raise ValueError("ordem inválida")
-    return format(decimal, "f")
+    return str(int(decimal))
 
 
 def _product_expiry(value: Any) -> str | datetime:
@@ -1303,6 +1440,10 @@ def _product_expiry(value: Any) -> str | datetime:
 def _reconstruct_product_identity(partner: str, affiliate_url: str) -> tuple[str | None, str | None]:
     try:
         key = _canonical_partner_key(partner)
+        configuration = PARTNERS.get(key)
+        if configuration is None or not configuration.allowed_hosts:
+            return None, None
+        validate_https_url(affiliate_url, configuration.allowed_hosts)
         if key == "mercado_livre":
             catalog_id = _mercado_catalog_id_from_url(affiliate_url)
             return (None if catalog_id else extract_mercado_item_id(affiliate_url)), catalog_id
