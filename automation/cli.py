@@ -24,6 +24,12 @@ class _SettingsLike(Protocol):
     products_worksheet: str
 
 
+class _ValidationStageError(Exception):
+    def __init__(self, stage: str) -> None:
+        self.stage = stage
+        super().__init__(stage)
+
+
 @dataclass(frozen=True, slots=True)
 class CliDependencies:
     """Injected collaborators for local, network-free CLI execution."""
@@ -52,13 +58,22 @@ def validate_environment(dependencies: CliDependencies) -> tuple[int, int, int]:
     limitations = _validate_partners(dependencies.partners)
     metadata = dependencies.gateway.get_spreadsheet()
     _validate_worksheet_access(metadata, dependencies.settings)
-    imports = read_table(
-        dependencies.gateway, dependencies.settings.import_worksheet, headers=IMPORT_HEADERS
-    )
-    products = read_table(
-        dependencies.gateway, dependencies.settings.products_worksheet, headers=PRODUCTS_HEADERS
-    )
-    failures = _validate_rows(imports, products)
+    try:
+        imports = read_table(
+            dependencies.gateway, dependencies.settings.import_worksheet, headers=IMPORT_HEADERS
+        )
+    except Exception:
+        raise _ValidationStageError("leitura-importacoes") from None
+    try:
+        products = read_table(
+            dependencies.gateway, dependencies.settings.products_worksheet, headers=PRODUCTS_HEADERS
+        )
+    except Exception:
+        raise _ValidationStageError("leitura-produtos") from None
+    try:
+        failures = _validate_rows(imports, products)
+    except Exception:
+        raise _ValidationStageError("dados-produtos") from None
     return len(imports), len(products), limitations + failures
 
 
@@ -101,6 +116,9 @@ def main(argv: Sequence[str] | None = None, cli_dependencies: CliDependencies | 
         if limitations:
             print("limitação: TikTok Shop sem hosts de produção aprovados.")
         return 1 if issues > limitations else 0
+    except _ValidationStageError as error:
+        print(f"erro operacional: etapa={error.stage}.", file=sys.stderr)
+        return 1
     except ConfigurationError:
         print("erro de configuração: GOOGLE_SERVICE_ACCOUNT_JSON ausente ou inválido.", file=sys.stderr)
         return 2

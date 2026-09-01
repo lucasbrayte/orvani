@@ -301,6 +301,43 @@ def test_schema_or_access_error_returns_operational_exit_without_raw_exception(c
     assert "private.invalid" not in output and "secret" not in output and "Traceback" not in output
 
 
+def test_validate_identifies_the_product_data_stage_without_echoing_cells(cli_dependencies, capsys):
+    """Catches a malformed product being hidden behind an unactionable generic failure."""
+    from automation.cli import main
+
+    product = _product()
+    product[7] = "secret-invalid-price"
+
+    assert main(
+        ["validate"],
+        replace(cli_dependencies, gateway=_gateway(product_rows=[product])),
+    ) == 1
+    captured = capsys.readouterr()
+    output = captured.out + captured.err
+    assert "etapa=dados-produtos" in output
+    assert "secret-invalid-price" not in output and "Traceback" not in output
+
+
+@pytest.mark.parametrize(("range_name", "stage"), [
+    ("'Importações'!A1:AF", "leitura-importacoes"),
+    ("'Produtos'!A4:T", "leitura-produtos"),
+])
+def test_validate_identifies_the_table_read_stage_without_echoing_headers(
+    cli_dependencies, capsys, range_name, stage
+):
+    """Catches a header mismatch being indistinguishable from unrelated runtime failures."""
+    from automation.cli import main
+
+    gateway = _gateway()
+    gateway._values[range_name][0][0] = "secret-invalid-header"
+
+    assert main(["validate"], replace(cli_dependencies, gateway=gateway)) == 1
+    captured = capsys.readouterr()
+    output = captured.out + captured.err
+    assert f"etapa={stage}" in output
+    assert "secret-invalid-header" not in output and "Traceback" not in output
+
+
 @pytest.mark.parametrize("mutator", [
     lambda rows, products: rows.append(_record(automation_id="auto-1")),
     lambda rows, products: rows.__setitem__(0, _record(update_mode="Manual")),
