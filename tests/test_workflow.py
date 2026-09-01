@@ -30,6 +30,7 @@ def load_workflow() -> dict[str, object]:
         ("pending", ["-m", "automation.cli", "sync", "--mode", "pending"]),
         ("full", ["-m", "automation.cli", "sync", "--mode", "full"]),
         ("validate", ["-m", "automation.cli", "validate"]),
+        ("setup-dry-run", ["-m", "automation.cli", "setup-sheet", "--dry-run"]),
     ],
 )
 def test_selector_invokes_cli_for_each_allowed_mode(tmp_path: Path, mode: str, expected_argv: list[str]):
@@ -52,7 +53,7 @@ def test_selector_invokes_cli_for_each_allowed_mode(tmp_path: Path, mode: str, e
     assert capture_path.read_text(encoding="utf-8").splitlines() == expected_argv
 
 
-@pytest.mark.parametrize("mode", ["", "unknown"])
+@pytest.mark.parametrize("mode", ["", "unknown", "setup"])
 def test_selector_rejects_modes_outside_the_allowlist(tmp_path: Path, mode: str):
     """Catches invalid input falling through to a write-capable sync mode."""
     capture_path = tmp_path / "argv.txt"
@@ -86,7 +87,8 @@ def test_workflow_contract_limits_permissions_and_scopes_credentials():
         "description": "Execution mode",
         "required": "true",
         "type": "choice",
-        "options": ["pending", "full", "validate"],
+        "default": "validate",
+        "options": ["validate", "setup-dry-run", "pending", "full"],
     }
     schedules = triggers["schedule"]
     assert schedules == [{"cron": FULL_CRON}, {"cron": PENDING_CRON}]

@@ -7,10 +7,12 @@ on:
         description: Execution mode
         required: true
         type: choice
+        default: validate
         options:
+          - validate
+          - setup-dry-run
           - pending
           - full
-          - validate
   schedule:
     - cron: "17 3,15 * * *"
     - cron: "17 0-2,4-14,16-23 * * *"

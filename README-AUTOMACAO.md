@@ -14,26 +14,26 @@ Este guia é para quem opera a planilha e o workflow. A automação preserva exa
 Os comandos abaixo são instruções para o operador, não evidência de que foram executados neste repositório. Configure o JSON somente no ambiente local ou no secret do GitHub; não inclua a chave em `.env.example`.
 
 ```bash
-.venv/bin/python -m automation.cli validate
 .venv/bin/python -m automation.cli setup-sheet --dry-run
-.venv/bin/python -m automation.cli sync --mode pending --dry-run
 ```
 
-O primeiro comando que escreve é o seguinte. Ele continua proibido até que o proprietário analise as saídas de `validate` e dos dry-runs obrigatórios acima e autorize a escrita separadamente:
+Se a aba `Importações` ainda não existir, `validate` encerrará com erro operacional até que o setup aprovado a crie. O primeiro comando que escreve é o seguinte. Ele continua proibido até que o proprietário analise a saída de `setup-sheet --dry-run` e autorize essa escrita separadamente:
 
 ```bash
 .venv/bin/python -m automation.cli setup-sheet
 ```
 
-Depois dessa autorização, o operador pode simular uma varredura completa antes de qualquer execução real:
+Depois da criação autorizada, execute a validação e os dois dry-runs antes de qualquer sincronização real:
 
 ```bash
+.venv/bin/python -m automation.cli validate
+.venv/bin/python -m automation.cli sync --mode pending --dry-run
 .venv/bin/python -m automation.cli sync --mode full --dry-run
 ```
 
 ## Operação manual e conteúdo
 
-1. No GitHub Actions, abra o workflow **Sync affiliate catalog**, clique em **Run workflow** e escolha `validate`, `pending` ou `full`, conforme o [disparo manual oficial](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow). Use `validate` e os dry-runs locais antes da primeira escrita; `pending` trata a fila e `full` atualiza o catálogo elegível.
+1. No GitHub Actions, abra o workflow **Sync affiliate catalog**, clique em **Run workflow** e escolha `setup-dry-run`, `validate`, `pending` ou `full`, conforme o [disparo manual oficial](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow). `validate` é a opção padrão. `setup-dry-run` apenas planeja o setup estrutural da aba `Importações` — criação quando ausente ou ajustes estruturais quando existente — sem escrever; o setup real não fica disponível nesse seletor antes da autorização separada. Depois da criação autorizada, use `validate` e os dry-runs locais antes da primeira sincronização real; `pending` trata a fila e `full` atualiza o catálogo elegível.
 2. Para adicionar um item, inclua o link do produto e os campos necessários na aba `Importações`; mantenha `Ativo=Sim`. Para publicar somente após revisão, defina `Publicar=Sim` quando o item estiver pronto. A automação não exclui nem despublica produtos existentes.
 3. Links Shopee comuns não são convertidos automaticamente em links de afiliado. Use os grupos oficiais de conversão gerados pela planilha, com no máximo cinco links por grupo/mensagem, e cole o link de afiliado convertido antes de publicar.
 4. Para pausar uma linha, defina `Ativo=Não`. Para preservar um item sem atualizá-lo, defina `Modo de Atualização=Bloqueado`. Para pausar tudo, desabilite o workflow no GitHub Actions; reative-o somente com autorização do proprietário.

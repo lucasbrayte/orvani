@@ -11,6 +11,9 @@ case "$mode" in
   validate)
     exec "$python_executable" -m automation.cli validate
     ;;
+  setup-dry-run)
+    exec "$python_executable" -m automation.cli setup-sheet --dry-run
+    ;;
   *)
     printf 'invalid affiliate sync mode: %s\n' "$mode" >&2
     exit 64
