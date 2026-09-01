@@ -1021,10 +1021,60 @@ def test_changed_terminal_review_identity_reopens_collection_without_publication
     second = SyncEngine(
         _sync_gateway(records=(changed,)), registry
     ).run("pending", dry_run=True)
+    second_state_update = next(
+        update for update in second.planned_import_updates
+        if update.range_name == "'Importações'!Z2:AB2"
+    )
+    second_signature_update = next(
+        update for update in second.planned_import_updates
+        if update.range_name == "'Importações'!AD2:AE2"
+    )
+    retry = replace(
+        changed, status=second.final_status(2), message=second.items[0].message,
+        consecutive_attempts=second_state_update.values[0][2],
+        data_signature=second_signature_update.values[0][0],
+    )
+    retry_registry = _OutcomeRegistry({
+        retry.affiliate_url: TemporaryFetchError("second temporary retry")
+    })
+
+    third = SyncEngine(
+        _sync_gateway(records=(retry,)), retry_registry
+    ).run("pending", dry_run=True)
 
     assert first.final_status(2) is ImportStatus.REVISAR
     assert registry.selected == [changed.affiliate_url]
     assert second.final_status(2) is ImportStatus.REVISAR
+    assert retry_registry.selected == [retry.affiliate_url]
+    assert third.final_status(2) is ImportStatus.REVISAR
+
+
+@pytest.mark.parametrize("review_status", [
+    ImportStatus.REVISAR,
+    ImportStatus.ATENCAO,
+])
+def test_changed_v1_review_link_reopens_collection_without_publication_approval(
+    review_status,
+):
+    """Catches a changed link being ignored after a normal or partial snapshot."""
+    from automation.sync import SyncEngine, _signature_envelope, _snapshot_signature
+
+    original = _record(status=review_status, publish="Não")
+    persisted = replace(
+        original,
+        data_signature=_signature_envelope(original, _snapshot_signature(_snapshot())),
+        affiliate_url="https://meli.la/changed-v1-review",
+    )
+    registry = _OutcomeRegistry({
+        persisted.affiliate_url: TemporaryFetchError("temporary after link change")
+    })
+
+    report = SyncEngine(
+        _sync_gateway(records=(persisted,)), registry
+    ).run("pending", dry_run=True)
+
+    assert registry.selected == [persisted.affiliate_url]
+    assert report.final_status(2) is review_status
 
 
 def test_unchanged_snapshot_writes_only_state_and_verification_not_metadata():

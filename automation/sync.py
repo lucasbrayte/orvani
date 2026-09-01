@@ -865,7 +865,8 @@ def _is_selected(record: ImportRecord, mode: str, now: datetime) -> bool:
     if record.status is ImportStatus.ATENCAO:
         category, same_identity = _persisted_outcome_classification(record)
         if category is None:
-            return False
+            old_link, _old_data = _signature_parts(record.data_signature)
+            return old_link is not None and old_link != _record_link_hash(record)
         if not same_identity:
             return True
         return category == "temporary" and record.consecutive_attempts < 3
@@ -881,6 +882,11 @@ def _is_selected(record: ImportRecord, mode: str, now: datetime) -> bool:
         category, same_identity = _persisted_outcome_classification(record)
         if category in _TERMINAL_OUTCOME_CATEGORIES:
             return not same_identity
+        if category == "temporary":
+            return not same_identity or record.consecutive_attempts < 3
+        old_link, _old_data = _signature_parts(record.data_signature)
+        if old_link is not None and old_link != _record_link_hash(record):
+            return True
         return _is_yes(record.publish)
     if record.status is ImportStatus.PUBLICADO:
         category, same_identity = _persisted_outcome_classification(record)
