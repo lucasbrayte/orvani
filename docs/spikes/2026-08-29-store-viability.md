@@ -40,3 +40,28 @@ verificação; ambas permanecem **SEMIAUTOMÁTICO**. Não houve resultado
 
 SHEIN e TikTok Shop não tinham amostras no CSV e não foram avaliadas. Nenhuma
 escrita foi realizada em qualquer planilha ou serviço externo.
+
+## Revalidação final da Task 18
+
+Data/hora (UTC): 2026-09-01T02:04:09Z
+
+O CSV público atual foi relido pelo parser de produção, sem credenciais,
+cookies ou escrita. O cabeçalho de 20 campos estava na linha 3; 13 linhas
+ativas foram aceitas e nenhuma foi rejeitada. A distribuição sanitizada foi:
+Amazon 2, Magalu 1, Mercado Livre 2, Natura 2 e Shopee 6. Em relação à leitura
+original acima, a contagem aceita passou de 11 para 13 e a rejeição Hotmart
+não está presente no CSV atual.
+
+O smoke opt-in selecionou a primeira amostra ativa atual de cada loja coberta,
+usou os mesmos limites e o cliente HTTP seguro da automação e observou:
+
+| Loja | Amostras | Desfecho tipado | Resultado factual |
+| --- | --- | --- | --- |
+| Mercado Livre | 1 | `InvalidProductDataError` | SEMIAUTOMÁTICO; não houve snapshot normalizado |
+| Shopee | 1 | `InvalidProductDataError` | SEMIAUTOMÁTICO; não houve snapshot normalizado |
+
+Esses desfechos tipados confirmam uma limitação segura de leitura pública,
+não sucesso de importação. SHEIN e TikTok Shop continuam sem amostra no CSV
+atual e, portanto, sem validação de produção. Não foram retidos URLs, caminhos,
+consultas, fragmentos, corpos de resposta ou dados da planilha, e nenhuma
+escrita, autenticação, mudança de permissão, publicação ou deploy foi realizado.
