@@ -45,7 +45,7 @@ O workflow faz execução `full` às **03:17** e **15:17 UTC**. Nos demais horá
 
 O catálogo é pequeno e as consultas são limitadas, com timeout, redirecionamento restrito e corpo limitado. Isso não garante disponibilidade da loja: bloqueios, mudanças de página ou limites de quota deixam o item para revisão e preservam o catálogo anterior. A operação é deliberadamente semiautomática quando há bloqueio, principalmente para a conversão Shopee.
 
-Há uma limitação conhecida: a amostra atual de Hotmart tem host incompatível com a regra de host Hotmart. SHEIN e TikTok Shop não têm amostra atual validada para um resultado live; não faça alegações de sucesso para essas lojas. A allowlist de TikTok Shop está intencionalmente vazia.
+Na leitura inicial, a amostra Hotmart tinha host incompatível com a regra de host Hotmart; a revalidação pública de 1º de setembro de 2026 não encontrou essa linha no CSV atual, e a automação não a alterou nem a removeu. Nessa mesma revalidação, as amostras atuais de Mercado Livre e Shopee terminaram em `InvalidProductDataError`, sem snapshot normalizado, e por isso permanecem semiautomáticas. SHEIN e TikTok Shop não têm amostra atual validada para um resultado live; não faça alegações de sucesso para essas lojas. A allowlist de TikTok Shop está intencionalmente vazia.
 
 ## Smoke tests live opt-in
 
