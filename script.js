@@ -593,6 +593,32 @@ const CONFIG = {
       .replace(/^-+|-+$/g, "");
   }
 
+  const CATEGORY_ICON_RULES = Object.freeze([
+    [["eletrodomest"], "bi-house-gear"],
+    [["eletron", "informat", "computador", "celular", "telefon"], "bi-laptop"],
+    [["esporte", "lazer", "biciclet"], "bi-bicycle"],
+    [["beleza", "maquiag"], "bi-stars"],
+    [["brinqued", "infantil"], "bi-balloon"],
+    [["acessor", "relog", "joia"], "bi-watch"],
+    [["moda", "roupa", "calcado", "vestuario"], "bi-handbag"],
+    [["perfum"], "bi-droplet"],
+    [["instrument", "musica"], "bi-music-note-beamed"],
+    [["equipament", "ferrament"], "bi-tools"],
+    [["casa", "cozinha", "decorac", "moveis"], "bi-house-heart"],
+    [["game", "jogo"], "bi-controller"],
+    [["aplicativ", "software"], "bi-window"],
+    [["educa", "curso", "livro"], "bi-mortarboard"],
+    [["saude", "fitness", "bem-estar"], "bi-heart-pulse"],
+    [["alimento", "mercado", "comida"], "bi-basket"],
+  ]);
+
+  function categoryIconClass(value) {
+    const normalizedCategory = searchable(value);
+    const rule = CATEGORY_ICON_RULES.find(([keywords]) =>
+      keywords.some((keyword) => normalizedCategory.includes(keyword)));
+    return `bi ${rule?.[1] ?? "bi-grid"}`;
+  }
+
   function readCatalogFilters(search = "") {
     const parameters = new URLSearchParams(String(search).replace(/^\?/, ""));
     const type = compactText(parameters.get("tipo"));
@@ -705,6 +731,7 @@ const CONFIG = {
     partnerLabel,
     typeLabel,
     categorySlug,
+    categoryIconClass,
     readCatalogFilters,
     serializeCatalogFilters,
   });
@@ -1042,9 +1069,11 @@ const CONFIG = {
       list.replaceChildren(...categories.map((category) => {
         const count = products.filter((product) => product.category === category).length;
         const link = element("a", "category-chip");
+        const icon = element("i", `category-chip-icon ${categoryIconClass(category)}`);
+        icon.setAttribute("aria-hidden", "true");
         link.href = `catalogo.html?categoria=${encodeURIComponent(categorySlug(category))}`;
         link.append(
-          element("span", "category-chip-icon", "◇"),
+          icon,
           element("span", "category-chip-name", category),
           element("span", "category-chip-count", `${count} ${count === 1 ? "item" : "itens"}`),
           element("span", "category-chip-arrow", "→"),

@@ -163,6 +163,41 @@ test("rendered catalog images explicitly preserve the whole image inside their f
   );
 });
 
+test("selects semantic Bootstrap Icons from normalized category names", () => {
+  const cases = [
+    ["  ELETRÔNICOS ", "bi bi-laptop"],
+    ["Eletrodomésticos", "bi bi-house-gear"],
+    ["Esporte e Lazer", "bi bi-bicycle"],
+    ["Beleza e Maquiagem", "bi bi-stars"],
+    ["Brinquedos", "bi bi-balloon"],
+    ["Moda", "bi bi-handbag"],
+    ["Perfumaria", "bi bi-droplet"],
+    ["Instrumentos Musicais", "bi bi-music-note-beamed"],
+  ];
+
+  assert.deepEqual(
+    cases.map(([category]) => core.categoryIconClass?.(category)),
+    cases.map(([, icon]) => icon),
+  );
+});
+
+test("gives every unmatched new category a generic Bootstrap Icon", () => {
+  assert.equal(core.categoryIconClass?.("Categoria completamente inédita"), "bi bi-grid");
+  assert.equal(core.categoryIconClass?.(""), "bi bi-grid");
+});
+
+test("renders category cards with their semantic icon hidden from assistive text", () => {
+  const { app, core: browserCore, nodes } = loadBrowserApp();
+
+  app.renderHome([browserCore.DEMO_PRODUCTS[0]]);
+  const icon = nodes.categories.children[0].children[0];
+
+  assert.deepEqual(
+    { tagName: icon.tagName, className: icon.className, ariaHidden: icon.attributes["aria-hidden"] },
+    { tagName: "I", className: "category-chip-icon bi bi-laptop", ariaHidden: "true" },
+  );
+});
+
 test("parses strict real offer dates at local end of day", () => {
   const iso = core.parseOfferDate("2026-08-29");
   const brazilian = core.parseOfferDate("29/08/2026");

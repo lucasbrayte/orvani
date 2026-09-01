@@ -1247,7 +1247,7 @@ main {
 }
 
 /* ========================================================================== */
-/* Home: hero e composição dinâmica                                           */
+/* Home: hero e mascote                                                       */
 /* ========================================================================== */
 
 .hero {
@@ -1363,166 +1363,110 @@ main {
   justify-self: center;
 }
 
-.hero-story {
+.hero-mascot-scene {
   position: absolute;
   inset: 0;
+  display: grid;
+  place-items: center;
   isolation: isolate;
 }
 
-.hero-story::before {
+.hero-mascot-scene::before,
+.hero-mascot-scene::after {
   position: absolute;
-  inset: 13% 12%;
-  border: 1px solid rgba(99, 91, 255, 0.15);
+  z-index: -2;
   border-radius: 50%;
-  background:
-    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.92), rgba(238, 237, 255, 0.55) 54%, transparent 72%);
-  box-shadow: 0 40px 90px rgba(75, 63, 170, 0.12);
   content: "";
 }
 
-.hero-compass {
-  position: absolute;
-  z-index: 1;
-  top: 49%;
-  left: 51%;
-  display: grid;
-  width: clamp(10.5rem, 38vw, 15rem);
+.hero-mascot-scene::before {
+  width: 82%;
   aspect-ratio: 1;
-  place-items: center;
-  border: 1px solid rgba(99, 91, 255, 0.2);
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.56);
-  box-shadow: inset 0 0 50px rgba(99, 91, 255, 0.08);
-  transform: translate(-50%, -50%);
+  border: 1px solid rgba(99, 91, 255, 0.14);
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.94), rgba(226, 224, 255, 0.48) 54%, transparent 72%);
+  box-shadow: 0 44px 90px rgba(75, 63, 170, 0.14);
 }
 
-.hero-compass-ring {
-  position: absolute;
-  border-radius: 50%;
-}
-
-.hero-compass-ring-outer {
-  inset: 9%;
-  border: 1px dashed rgba(99, 91, 255, 0.38);
-  animation: compass-spin 24s linear infinite;
-}
-
-.hero-compass-ring-inner {
-  inset: 27%;
-  border: 1px solid rgba(99, 91, 255, 0.22);
-}
-
-.hero-compass-mark {
-  display: grid;
-  width: 4.35rem;
+.hero-mascot-scene::after {
+  width: 64%;
   aspect-ratio: 1;
-  place-items: center;
-  border-radius: 1.25rem;
-  background: linear-gradient(145deg, var(--navy), #24214f);
-  box-shadow: 0 18px 40px rgba(11, 16, 32, 0.28);
-  color: #fff;
-  font-family: Manrope, ui-sans-serif, system-ui, sans-serif;
-  font-size: 1.85rem;
-  font-weight: 900;
-  transform: rotate(-7deg);
+  border: 1px dashed rgba(99, 91, 255, 0.3);
+  animation: mascot-orbit 26s linear infinite;
 }
 
-.hero-compass-label {
+.hero-mascot-halo {
   position: absolute;
-  bottom: 12%;
-  color: var(--brand-strong);
-  font-size: 0.62rem;
-  font-weight: 850;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  z-index: -1;
+  width: 47%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: linear-gradient(145deg, rgba(99, 91, 255, 0.18), rgba(155, 148, 255, 0.05));
+  filter: blur(2px);
 }
 
-.hero-story-panel {
+.hero-mascot {
+  display: block;
+  width: auto;
+  max-width: 88%;
+  height: min(29rem, 100%);
+  object-fit: contain;
+  filter: drop-shadow(0 28px 30px rgba(11, 16, 32, 0.2));
+  animation: mascot-float 5.5s ease-in-out infinite alternate;
+}
+
+.hero-mascot-badge {
   position: absolute;
   z-index: 2;
-  display: grid;
-  width: clamp(10.75rem, 42vw, 14rem);
-  min-height: 5.25rem;
-  align-items: center;
-  grid-template-columns: 2.7rem minmax(0, 1fr);
-  padding: 0.85rem;
-  gap: 0.75rem;
-  border: 1px solid rgba(99, 91, 255, 0.16);
-  border-radius: 1.15rem;
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 22px 52px rgba(11, 16, 32, 0.13);
-  backdrop-filter: blur(16px);
-  animation: story-float 6s ease-in-out infinite alternate;
-}
-
-.hero-story-panel-1 {
-  top: 2%;
-  left: 0;
-  transform: rotate(-3deg);
-}
-
-.hero-story-panel-2 {
-  top: 29%;
   right: 0;
-  animation-delay: -2s;
-  transform: rotate(3deg);
-}
-
-.hero-story-panel-3 {
-  bottom: 3%;
-  left: 12%;
-  animation-delay: -4s;
-  transform: rotate(-1deg);
-}
-
-.hero-story-icon {
+  bottom: 1.25rem;
   display: grid;
-  width: 2.7rem;
+  min-width: 15.5rem;
+  align-items: center;
+  grid-template-columns: 2.65rem minmax(0, 1fr);
+  padding: 0.8rem 1rem;
+  gap: 0.7rem;
+  border: 1px solid rgba(99, 91, 255, 0.16);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 20px 45px rgba(11, 16, 32, 0.13);
+  backdrop-filter: blur(16px);
+}
+
+.hero-mascot-badge > i {
+  display: grid;
+  width: 2.65rem;
   aspect-ratio: 1;
   place-items: center;
-  border-radius: 0.85rem;
+  border-radius: 0.8rem;
   background: var(--brand-soft);
   color: var(--brand-strong);
-  font-size: 1.15rem;
-  font-weight: 900;
+  font-size: 1.2rem;
 }
 
-.hero-story-panel-3 .hero-story-icon {
-  background: rgba(24, 160, 88, 0.12);
-  color: var(--success);
-}
-
-.hero-story-copy {
+.hero-mascot-badge > span {
   display: grid;
-  min-width: 0;
-  gap: 0.08rem;
+  gap: 0.1rem;
 }
 
-.hero-story-copy small {
+.hero-mascot-badge small {
   color: var(--brand-strong);
   font-size: 0.58rem;
   font-weight: 850;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
 }
 
-.hero-story-copy strong {
+.hero-mascot-badge strong {
   font-family: Manrope, ui-sans-serif, system-ui, sans-serif;
-  font-size: 0.95rem;
+  font-size: 0.82rem;
 }
 
-.hero-story-copy > span {
-  color: var(--muted);
-  font-size: 0.68rem;
-  font-weight: 700;
-  line-height: 1.25;
+@keyframes mascot-float {
+  from { transform: translateY(0) rotate(-0.5deg); }
+  to { transform: translateY(-0.55rem) rotate(0.5deg); }
 }
 
-@keyframes story-float {
-  from { translate: 0 0; }
-  to { translate: 0 -0.45rem; }
-}
-
-@keyframes compass-spin {
+@keyframes mascot-orbit {
   to { transform: rotate(360deg); }
 }
 
@@ -1606,6 +1550,14 @@ main {
   background: var(--brand-soft);
   color: var(--brand-strong);
   font-size: 1.35rem;
+  font-style: normal;
+  transition: background-color 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.category-chip:hover .category-chip-icon {
+  background: var(--brand);
+  color: #fff;
+  transform: translateY(-0.12rem);
 }
 
 .category-chip-name {
@@ -2200,10 +2152,6 @@ main {
     min-height: 28rem;
   }
 
-  .hero-story-panel {
-    width: 14rem;
-  }
-
   .category-list,
   .benefit-grid,
   .footer-grid {
@@ -2245,8 +2193,8 @@ main {
     min-height: 32rem;
   }
 
-  .hero-story-panel-2 {
-    top: 30%;
+  .hero-mascot {
+    height: min(31rem, 100%);
   }
 
   .process-section {
@@ -2300,24 +2248,16 @@ main {
     min-height: 21rem;
   }
 
-  .hero-story-panel {
-    width: 10.4rem;
-    min-height: 5.2rem;
-    grid-template-columns: 2.3rem minmax(0, 1fr);
-    padding: 0.68rem;
-    gap: 0.55rem;
+  .hero-mascot {
+    max-width: 94%;
+    height: min(20rem, 100%);
   }
 
-  .hero-story-icon {
-    width: 2.3rem;
-  }
-
-  .hero-story-panel-2 {
-    top: 30%;
-  }
-
-  .hero-story-panel-3 {
-    left: 8%;
+  .hero-mascot-badge {
+    right: 50%;
+    bottom: 0.35rem;
+    min-width: min(16rem, 94%);
+    transform: translateX(50%);
   }
 
   .catalog-toolbar,
@@ -2330,15 +2270,15 @@ main {
 
 @media (prefers-reduced-motion: reduce) {
   .hero-glow,
-  .hero-story-panel,
-  .hero-compass-ring-outer,
+  .hero-mascot,
+  .hero-mascot-scene::after,
   .institutional-dialog[open],
   #result-count.is-updating,
   .product-grid.is-updating {
     animation: none !important;
   }
 
-  .hero-story-panel {
-    translate: none !important;
+  .hero-mascot {
+    transform: none !important;
   }
 }
