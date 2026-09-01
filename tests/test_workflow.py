@@ -53,7 +53,7 @@ def test_selector_invokes_cli_for_each_allowed_mode(tmp_path: Path, mode: str, e
     assert capture_path.read_text(encoding="utf-8").splitlines() == expected_argv
 
 
-@pytest.mark.parametrize("mode", ["", "unknown", "setup"])
+@pytest.mark.parametrize("mode", ["", "unknown"])
 def test_selector_rejects_modes_outside_the_allowlist(tmp_path: Path, mode: str):
     """Catches invalid input falling through to a write-capable sync mode."""
     capture_path = tmp_path / "argv.txt"
@@ -65,6 +65,101 @@ def test_selector_rejects_modes_outside_the_allowlist(tmp_path: Path, mode: str)
         [str(SELECTOR_PATH), mode],
         cwd=REPOSITORY_ROOT,
         env={**os.environ, "PYTHON_EXECUTABLE": str(fake_python), "CAPTURE_PATH": str(capture_path)},
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert not capture_path.exists()
+
+
+@pytest.mark.parametrize("confirmation", [None, "", "false", "TRUE", "1"])
+def test_selector_rejects_setup_without_exact_confirmation(
+    tmp_path: Path, confirmation: str | None
+):
+    """Catches an unconfirmed setup reaching the write-capable CLI command."""
+    capture_path = tmp_path / "argv.txt"
+    fake_python = tmp_path / "fake-python"
+    fake_python.write_text('#!/usr/bin/env bash\ntouch "$CAPTURE_PATH"\n', encoding="utf-8")
+    fake_python.chmod(0o755)
+    environment = {
+        **os.environ,
+        "PYTHON_EXECUTABLE": str(fake_python),
+        "CAPTURE_PATH": str(capture_path),
+    }
+    if confirmation is None:
+        environment.pop("ORVANI_CONFIRM_SETUP", None)
+    else:
+        environment["ORVANI_CONFIRM_SETUP"] = confirmation
+
+    result = subprocess.run(
+        [str(SELECTOR_PATH), "setup"],
+        cwd=REPOSITORY_ROOT,
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert not capture_path.exists()
+
+
+def test_selector_invokes_setup_only_with_exact_confirmation(tmp_path: Path):
+    """Catches an approved setup being routed to a dry run or another operation."""
+    capture_path = tmp_path / "argv.txt"
+    fake_python = tmp_path / "fake-python"
+    fake_python.write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$@" > "$CAPTURE_PATH"\n', encoding="utf-8")
+    fake_python.chmod(0o755)
+
+    result = subprocess.run(
+        [str(SELECTOR_PATH), "setup"],
+        cwd=REPOSITORY_ROOT,
+        env={
+            **os.environ,
+            "PYTHON_EXECUTABLE": str(fake_python),
+            "CAPTURE_PATH": str(capture_path),
+            "ORVANI_CONFIRM_SETUP": "true",
+            "ORVANI_IMPORT_WORKSHEET": "Importações",
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert capture_path.read_text(encoding="utf-8").splitlines() == [
+        "-m",
+        "automation.cli",
+        "setup-sheet",
+    ]
+
+
+@pytest.mark.parametrize("worksheet", [None, "", "Importacoes", "Produtos"])
+def test_selector_rejects_setup_for_an_unapproved_worksheet(
+    tmp_path: Path, worksheet: str | None
+):
+    """Catches an approved write being redirected to a worksheet outside its authorization."""
+    capture_path = tmp_path / "argv.txt"
+    fake_python = tmp_path / "fake-python"
+    fake_python.write_text('#!/usr/bin/env bash\ntouch "$CAPTURE_PATH"\n', encoding="utf-8")
+    fake_python.chmod(0o755)
+    environment = {
+        **os.environ,
+        "PYTHON_EXECUTABLE": str(fake_python),
+        "CAPTURE_PATH": str(capture_path),
+        "ORVANI_CONFIRM_SETUP": "true",
+    }
+    if worksheet is None:
+        environment.pop("ORVANI_IMPORT_WORKSHEET", None)
+    else:
+        environment["ORVANI_IMPORT_WORKSHEET"] = worksheet
+
+    result = subprocess.run(
+        [str(SELECTOR_PATH), "setup"],
+        cwd=REPOSITORY_ROOT,
+        env=environment,
         text=True,
         capture_output=True,
         check=False,
@@ -88,7 +183,13 @@ def test_workflow_contract_limits_permissions_and_scopes_credentials():
         "required": "true",
         "type": "choice",
         "default": "validate",
-        "options": ["validate", "setup-dry-run", "pending", "full"],
+        "options": ["validate", "setup-dry-run", "pending", "full", "setup"],
+    }
+    assert dispatch["inputs"]["confirm_setup"] == {
+        "description": "Confirm the authorized write to the Importações sheet",
+        "required": "false",
+        "type": "boolean",
+        "default": "false",
     }
     schedules = triggers["schedule"]
     assert schedules == [{"cron": FULL_CRON}, {"cron": PENDING_CRON}]
@@ -121,6 +222,7 @@ def test_workflow_contract_limits_permissions_and_scopes_credentials():
         "GOOGLE_SERVICE_ACCOUNT_JSON": "${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}",
         "ORVANI_IMPORT_WORKSHEET": "${{ vars.ORVANI_IMPORT_WORKSHEET }}",
         "ORVANI_PRODUCTS_WORKSHEET": "${{ vars.ORVANI_PRODUCTS_WORKSHEET }}",
+        "ORVANI_CONFIRM_SETUP": "${{ github.event_name == 'workflow_dispatch' && inputs.confirm_setup || false }}",
     }
     assert all("GOOGLE_SERVICE_ACCOUNT_JSON" not in step.get("env", {}) for step in steps[:-1])
     assert all(

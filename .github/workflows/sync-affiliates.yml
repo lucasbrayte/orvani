@@ -13,6 +13,12 @@ on:
           - setup-dry-run
           - pending
           - full
+          - setup
+      confirm_setup:
+        description: Confirm the authorized write to the Importações sheet
+        required: false
+        type: boolean
+        default: false
   schedule:
     - cron: "17 3,15 * * *"
     - cron: "17 0-2,4-14,16-23 * * *"
@@ -45,4 +51,5 @@ jobs:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           ORVANI_IMPORT_WORKSHEET: ${{ vars.ORVANI_IMPORT_WORKSHEET }}
           ORVANI_PRODUCTS_WORKSHEET: ${{ vars.ORVANI_PRODUCTS_WORKSHEET }}
+          ORVANI_CONFIRM_SETUP: ${{ github.event_name == 'workflow_dispatch' && inputs.confirm_setup || false }}
         run: .github/scripts/run-affiliate-sync.sh "$AFFILIATE_MODE"
