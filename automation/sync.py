@@ -1275,8 +1275,9 @@ def parse_product_rows(raw: Sequence[tuple[Any, ...]]) -> tuple[ProductRow, ...]
     output: list[ProductRow] = []
     for row_number, row in enumerate(raw, start=PRODUCTS_HEADER_ROW + 1):
         if not isinstance(row, tuple):
-            raise SheetSchemaError("Uma linha de Produtos é inválida.")
-        cells = tuple(row) + ("",) * (20 - len(row))
+            raise SheetSchemaError(
+                f"A linha {row_number} da aba Produtos é inválida."
+            )
         try:
             texts = tuple(_product_text(cells[index]) for index in (*range(0, 7), 9, 11, 12, 13, 14, 15, 16, 17, 19))
             price, promotional = _product_decimal(cells[7]), _product_decimal(cells[8])
