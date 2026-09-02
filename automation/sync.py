@@ -27,6 +27,7 @@ from .config import (
     IMPORT_WORKSHEET,
     PARTNERS,
     PRODUCTS_HEADER_ROW,
+    PRODUCTS_FIRST_DATA_ROW,
     PRODUCTS_HEADERS,
     PRODUCTS_WORKSHEET,
     SPREADSHEET_ID,
@@ -245,7 +246,10 @@ def plan_publication(
             return ()
         row_number = existing.row_number
     else:
-        row_number = max((row.row_number for row in rows), default=PRODUCTS_HEADER_ROW) + 1
+        row_number = max(
+            (row.row_number for row in rows),
+            default=PRODUCTS_FIRST_DATA_ROW - 1,
+        ) + 1
     range_name = _products_range(worksheet, row_number)
     return (SheetUpdate(range_name, (values,)),)
 
@@ -447,7 +451,7 @@ def _validate_product_row_identities(rows: Sequence[ProductRow]) -> None:
             not isinstance(row, ProductRow)
             or not isinstance(row.row_number, int)
             or isinstance(row.row_number, bool)
-            or row.row_number <= PRODUCTS_HEADER_ROW
+            or row.row_number < PRODUCTS_FIRST_DATA_ROW
         ):
             raise AmbiguousProductMatchError("A identidade de uma linha de Produtos é inválida.")
         if row.row_number in identities:
@@ -1275,6 +1279,9 @@ def parse_product_rows(raw: Sequence[tuple[Any, ...]]) -> tuple[ProductRow, ...]
     output: list[ProductRow] = []
 
     for row_number, row in enumerate(raw, start=PRODUCTS_HEADER_ROW + 1):
+        if row_number < PRODUCTS_FIRST_DATA_ROW:
+            continue
+
         if not isinstance(row, tuple):
             raise SheetSchemaError(
                 f"A linha {row_number} da aba Produtos é inválida."
