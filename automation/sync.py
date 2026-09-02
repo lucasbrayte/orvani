@@ -1288,8 +1288,9 @@ def parse_product_rows(raw: Sequence[tuple[Any, ...]]) -> tuple[ProductRow, ...]
             output.append(ProductRow(row_number, texts[0], texts[1], partner, texts[3], texts[4], texts[5], texts[6],
                 price, promotional, texts[7], expiry, affiliate, texts[9], texts[10], texts[11], texts[12], texts[13], texts[14], order, texts[15], external_id, catalog_id))
         except (TypeError, ValueError, ArithmeticError, InvalidProductDataError):
-            raise SheetSchemaError("Uma linha de Produtos é inválida.") from None
-    return tuple(output)
+            raise SheetSchemaError(
+                f"A linha {row_number} da aba Produtos é inválida."
+            ) from None
 
 
 def validate_import_row(row: Sequence[Any]) -> None:
