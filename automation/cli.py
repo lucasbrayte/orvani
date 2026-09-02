@@ -72,9 +72,10 @@ def validate_environment(dependencies: CliDependencies) -> tuple[int, int, int]:
         raise _ValidationStageError("leitura-produtos") from None
     try:
         failures = _validate_rows(imports, products)
+    except SheetSchemaError as error:
+        raise SheetSchemaError(f"Dados inválidos em Importações/Produtos: {error}") from None
     except Exception:
         raise _ValidationStageError("dados-produtos") from None
-    return len(imports), len(products), limitations + failures
 
 
 def main(argv: Sequence[str] | None = None, cli_dependencies: CliDependencies | None = None) -> int:
