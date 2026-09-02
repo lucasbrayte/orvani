@@ -120,8 +120,14 @@ def main(argv: Sequence[str] | None = None, cli_dependencies: CliDependencies | 
         print(f"erro operacional: etapa={error.stage}.", file=sys.stderr)
         return 1
     except ConfigurationError:
-        print("erro de configuração: GOOGLE_SERVICE_ACCOUNT_JSON ausente ou inválido.", file=sys.stderr)
+        print(
+            "erro de configuração: GOOGLE_SERVICE_ACCOUNT_JSON ausente ou inválido.",
+            file=sys.stderr,
+        )
         return 2
+    except SheetSchemaError as error:
+        print(f"erro de estrutura da planilha: {error}", file=sys.stderr)
+        return 1
     except Exception:
         print("erro operacional: validação não concluída.", file=sys.stderr)
         return 1
