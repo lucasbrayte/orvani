@@ -1273,24 +1273,66 @@ def _read_product_rows(gateway: SheetsGateway, worksheet: str) -> tuple[ProductR
 def parse_product_rows(raw: Sequence[tuple[Any, ...]]) -> tuple[ProductRow, ...]:
     """Parse current Produtos rows using the same contract as synchronization."""
     output: list[ProductRow] = []
+
     for row_number, row in enumerate(raw, start=PRODUCTS_HEADER_ROW + 1):
         if not isinstance(row, tuple):
             raise SheetSchemaError(
                 f"A linha {row_number} da aba Produtos é inválida."
             )
+
+        cells = tuple(row) + ("",) * (len(PRODUCTS_HEADERS) - len(row))
+
         try:
-            texts = tuple(_product_text(cells[index]) for index in (*range(0, 7), 9, 11, 12, 13, 14, 15, 16, 17, 19))
-            price, promotional = _product_decimal(cells[7]), _product_decimal(cells[8])
+            texts = tuple(
+                _product_text(cells[index])
+                for index in (*range(0, 7), 9, 11, 12, 13, 14, 15, 16, 17, 19)
+            )
+            price, promotional = (
+                _product_decimal(cells[7]),
+                _product_decimal(cells[8]),
+            )
             order = _product_order(cells[18])
             expiry = _product_expiry(cells[10])
+
             partner, affiliate = texts[2], texts[8]
-            external_id, catalog_id = _reconstruct_product_identity(partner, affiliate)
-            output.append(ProductRow(row_number, texts[0], texts[1], partner, texts[3], texts[4], texts[5], texts[6],
-                price, promotional, texts[7], expiry, affiliate, texts[9], texts[10], texts[11], texts[12], texts[13], texts[14], order, texts[15], external_id, catalog_id))
+            external_id, catalog_id = _reconstruct_product_identity(
+                partner, affiliate
+            )
+
+            output.append(
+                ProductRow(
+                    row_number,
+                    texts[0],
+                    texts[1],
+                    partner,
+                    texts[3],
+                    texts[4],
+                    texts[5],
+                    texts[6],
+                    price,
+                    promotional,
+                    texts[7],
+                    expiry,
+                    affiliate,
+                    texts[9],
+                    texts[10],
+                    texts[11],
+                    texts[12],
+                    texts[13],
+                    texts[14],
+                    order,
+                    texts[15],
+                    external_id,
+                    catalog_id,
+                )
+            )
+
         except (TypeError, ValueError, ArithmeticError, InvalidProductDataError):
             raise SheetSchemaError(
                 f"A linha {row_number} da aba Produtos é inválida."
             ) from None
+
+    return tuple(output)
 
 
 def validate_import_row(row: Sequence[Any]) -> None:
