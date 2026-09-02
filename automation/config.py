@@ -14,6 +14,7 @@ SPREADSHEET_ID = "1oj0NbAkngUjjaYfJy5sEgzfDb7I0klHaUbvTzq6ZDB0"
 IMPORT_WORKSHEET = "Importações"
 PRODUCTS_WORKSHEET = "Produtos"
 PRODUCTS_HEADER_ROW = 4
+PRODUCTS_FIRST_DATA_ROW = 6
 
 PRODUCTS_HEADERS = (
     "Ativo *", "Tipo", "Plataforma", "Categoria", "Subcategoria", "Nome",
