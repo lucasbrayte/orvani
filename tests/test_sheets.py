@@ -70,7 +70,7 @@ def test_setup_creates_missing_sheet_once_with_one_complete_structural_batch(fak
     assert header_format["cell"]["userEnteredFormat"]["textFormat"]["bold"] is True
     assert _request_for(requests, "setBasicFilter")["filter"]["range"]["endColumnIndex"] == 32
     assert _validation_values(requests, 1) == ["Sim", "Não"]
-    assert _validation_values(requests, 5) == ["Automático", "Bloqueado"]
+    assert _validation_values(requests, 5) == ["Automático", "Manual", "Bloqueado"]
     assert _validation_values(requests, 25) == [
         "NOVO", "AGUARDANDO CONVERSÃO", "PROCESSANDO", "REVISAR",
         "PRONTO PARA PUBLICAR", "PUBLICADO", "ATENÇÃO", "ERRO", "DESATIVADO",

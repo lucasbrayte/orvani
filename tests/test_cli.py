@@ -340,7 +340,7 @@ def test_validate_identifies_the_table_read_stage_without_echoing_headers(
 
 @pytest.mark.parametrize("mutator", [
     lambda rows, products: rows.append(_record(automation_id="auto-1")),
-    lambda rows, products: rows.__setitem__(0, _record(update_mode="Manual")),
+    lambda rows, products: rows.__setitem__(0, _record(update_mode="Inválido")),
     lambda rows, products: _ambiguous_products(rows, products),
     lambda rows, products: rows.__setitem__(0, _record(status="PUBLICADO", publish="Sim").__setitem__(10, "") if False else _published_missing_name()),
 ])

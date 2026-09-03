@@ -345,7 +345,7 @@ def test_sync_engine_rejects_non_boolean_dry_run_before_reading_sheets(dry_run):
 
 
 @pytest.mark.parametrize("column,value", [
-    (1, True), (2, "Talvez"), (3, "talvez"), (4, -1), (5, "Manual"),
+    (1, True), (2, "Talvez"), (3, "talvez"), (4, -1), (5, "Inválido"),
     (4, "1.5"), (4, 1.5), (4, 9_007_199_254_740_992),
     (15, "149.90"), (25, "REVIEW"), (27, -1), (30, []),
 ])
