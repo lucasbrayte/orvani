@@ -579,19 +579,41 @@ class SyncEngine:
         records, default_rows = self._read_import_records()
         product_rows = _read_product_rows(self._gateway, self._products)
         selected = tuple(record for record in records if _is_selected(record, mode, now))
-        blocked_records = tuple(record for record in selected if record.update_mode is UpdateMode.BLOQUEADO)
-        fetch_records = tuple(record for record in selected if record.update_mode is not UpdateMode.BLOQUEADO)
+        blocked_records = tuple(
+            record for record in selected
+            if record.update_mode is UpdateMode.BLOQUEADO
+        )
+        manual_records = tuple(
+            record for record in selected
+            if record.update_mode is UpdateMode.MANUAL
+        )
+        fetch_records = tuple(
+            record for record in selected
+            if record.update_mode is UpdateMode.AUTOMATICO
+        )
+        processing_records = (*manual_records, *fetch_records)
         # This is the durable recovery checkpoint.  Product rows are already
         # fully validated above, so no malformed catalog data can leave a
-        # fetchable queue item PROCESSANDO. Blocked rows go directly to their
+        # processable queue item PROCESSANDO. Blocked rows go directly to their
         # terminal operational update and never enter PROCESSANDO.
-        if fetch_records and not dry_run:
-            checkpoint = tuple(_processing_update(record, now, self._imports) for record in fetch_records)
+        if processing_records and not dry_run:
+            checkpoint = tuple(
+                _processing_update(record, now, self._imports)
+                for record in processing_records
+            )
             _write_sync_batch(
                 self._gateway, checkpoint, worksheet=self._imports,
                 headers=IMPORT_HEADERS, phase="checkpoint",
             )
-        fetched = {record.row_number: _BlockedMode() for record in blocked_records}
+        fetched = {
+            record.row_number: _BlockedMode()
+            for record in blocked_records
+        }
+        for record in manual_records:
+            try:
+                fetched[record.row_number] = _manual_import_snapshot(record, now)
+            except InvalidProductDataError as error:
+                fetched[record.row_number] = error
         fetched.update(self._fetch_all(fetch_records))
 
         blocked_row_numbers = {

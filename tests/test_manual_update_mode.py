@@ -100,3 +100,58 @@ def test_manual_snapshot_rejects_product_without_safe_identity():
             ),
             NOW,
         )
+
+def test_manual_mode_does_not_select_public_connector():
+    from conftest import FakeSheetsGateway, _quoted
+    from automation.config import IMPORT_HEADERS, PRODUCTS_HEADERS
+
+    record = _manual_record()
+    calls = []
+
+    class Connector:
+        partner_key = "mercado_livre"
+
+        def fetch(self, _url):
+            return sync._manual_import_snapshot(record, NOW)
+
+    class Registry:
+        def select(self, _url):
+            calls.append("select")
+            return Connector()
+
+    sheets = FakeSheetsGateway(
+        sheets=(
+            {
+                "properties": {
+                    "sheetId": 1,
+                    "title": "Importações",
+                    "sheetType": "GRID",
+                    "gridProperties": {"rowCount": 20, "columnCount": 32},
+                }
+            },
+            {
+                "properties": {
+                    "sheetId": 2,
+                    "title": "Produtos",
+                    "sheetType": "GRID",
+                    "gridProperties": {"rowCount": 20, "columnCount": 20},
+                }
+            },
+        ),
+        values={
+            _quoted("Importações", "A1:AF"): [
+                list(IMPORT_HEADERS),
+                list(sync._record_values(record)),
+            ],
+            _quoted("Produtos", "A4:T"): [list(PRODUCTS_HEADERS)],
+        },
+    )
+
+    report = sync.SyncEngine(
+        sheets,
+        Registry(),
+        clock=lambda: NOW,
+    ).run("pending", dry_run=True)
+
+    assert report.final_status(2) is ImportStatus.PUBLICADO
+    assert calls == []
