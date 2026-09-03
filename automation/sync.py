@@ -944,6 +944,28 @@ def _manual_external_id(
     raise InvalidProductDataError("O produto manual não tem identidade segura.")
 
 
+def _manual_coupon_expiry(value: str) -> datetime | None:
+    text = value.strip()
+    if not text:
+        return None
+
+    try:
+        if _ISO_DATE.fullmatch(text):
+            point = datetime.fromisoformat(text)
+            return point.replace(tzinfo=UTC)
+
+        if _ISO_TIMESTAMP.fullmatch(text):
+            parsed = text[:-1] + "+00:00" if text.endswith("Z") else text
+            point = datetime.fromisoformat(parsed)
+            if point.tzinfo is None or point.utcoffset() is None:
+                raise ValueError
+            return point.astimezone(UTC)
+    except (TypeError, ValueError, OverflowError):
+        pass
+
+    raise InvalidProductDataError("A validade manual do cupom é inválida.")
+
+
 def _manual_import_snapshot(
     record: ImportRecord,
     fetched_at: datetime,
@@ -1018,7 +1040,7 @@ def _manual_import_snapshot(
         subcategory=record.subcategory.strip(),
         product_type=record.product_type.strip(),
         coupon=record.coupon.strip() or None,
-        coupon_expires_at=None,
+        coupon_expires_at=_manual_coupon_expiry(record.coupon_expires_at),
         images=images,
         available=None,
         fetched_at=_utc_now(fetched_at),

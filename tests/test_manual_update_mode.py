@@ -187,3 +187,26 @@ def test_manual_publication_uses_calc_values_verbatim():
     assert values[7] == Decimal("331.42")
     assert values[8] == Decimal("189.99")
     assert values[14] == "https://http2.mlstatic.com/manual.jpg"
+
+def test_manual_snapshot_parses_coupon_expiry_date():
+    snapshot = sync._manual_import_snapshot(
+        _manual_record(
+            coupon="ORVANI10",
+            coupon_expires_at="2026-09-30",
+        ),
+        NOW,
+    )
+
+    assert snapshot.coupon == "ORVANI10"
+    assert snapshot.coupon_expires_at == datetime(2026, 9, 30, tzinfo=UTC)
+
+
+def test_manual_snapshot_rejects_invalid_coupon_expiry():
+    with pytest.raises(InvalidProductDataError):
+        sync._manual_import_snapshot(
+            _manual_record(
+                coupon="ORVANI10",
+                coupon_expires_at="30/09/2026",
+            ),
+            NOW,
+        )
