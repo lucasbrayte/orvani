@@ -19,6 +19,21 @@ ALL_HEADERS = (
 )
 
 
+def _list_validation(range_obj, values: tuple[str, ...]) -> None:
+    validation = range_obj.Validation
+    try:
+        import uno  # type: ignore
+        validation.Type = uno.getConstantByName(
+            "com.sun.star.sheet.ValidationType.LIST"
+        )
+    except Exception:
+        validation.Type = "LIST"
+    validation.Formula1 = ";".join(values)
+    validation.ShowErrorMessage = True
+    validation.ErrorMessage = "Selecione um valor permitido."
+    range_obj.Validation = validation
+
+
 def configure_catalog_sheet(sheet) -> None:
     for col, header in enumerate(ALL_HEADERS):
         sheet.getCellByPosition(col, 0).String = header
@@ -26,10 +41,78 @@ def configure_catalog_sheet(sheet) -> None:
     for col in range(27, 34):
         sheet.Columns.getByIndex(col).IsVisible = False
 
+    widths = {
+        5: 7000, 6: 7000, 8: 5500, 9: 10000,
+        10: 4200, 11: 4200, 17: 7000, 18: 7000,
+        19: 7000, 20: 7000, 22: 3500, 23: 8000,
+    }
+    for col, width in widths.items():
+        try:
+            sheet.Columns.getByIndex(col).Width = width
+        except Exception:
+            pass
+
+    # Compatibilidade com os fakes unitários antigos:
+    # em LibreOffice real este método existe; em fakes mínimos ele pode não existir.
+    if hasattr(sheet, "getCellRangeByPosition"):
+        _list_validation(
+            sheet.getCellRangeByPosition(0, 1, 0, 1999), ("Sim", "Não")
+        )
+        _list_validation(
+            sheet.getCellRangeByPosition(1, 1, 1, 1999), ("Sim", "Não")
+        )
+        _list_validation(
+            sheet.getCellRangeByPosition(2, 1, 2, 1999), ("Sim", "Não")
+        )
+        _list_validation(
+            sheet.getCellRangeByPosition(4, 1, 4, 1999),
+            ("Automático", "Manual", "Bloqueado"),
+        )
+        _list_validation(
+            sheet.getCellRangeByPosition(7, 1, 7, 1999),
+            ("Mercado Livre", "Shopee", "SHEIN"),
+        )
+        _list_validation(
+            sheet.getCellRangeByPosition(12, 1, 12, 1999),
+            ("Físico", "Digital"),
+        )
+
+
+def _apply_price_format(document, sheet) -> None:
+    try:
+        import uno  # type: ignore
+        locale = uno.createUnoStruct("com.sun.star.lang.Locale")
+        locale.Language = "pt"
+        locale.Country = "BR"
+        formats = document.NumberFormats
+        key = formats.queryKey("R$ #,##0.00", locale, True)
+        if key == -1:
+            key = formats.addNew("R$ #,##0.00", locale)
+        sheet.getCellRangeByPosition(13, 1, 14, 1999).NumberFormat = key
+    except Exception:
+        pass
+
+
+def initialize_document(document) -> None:
+    sheets = document.Sheets
+    if sheets.hasByName(CATALOG_SHEET):
+        sheet = sheets.getByName(CATALOG_SHEET)
+    else:
+        sheet = sheets.getByIndex(0)
+        sheet.Name = CATALOG_SHEET
+
+    configure_catalog_sheet(sheet)
+
+    try:
+        document.getCurrentController().freezeAtPosition(0, 1)
+    except Exception:
+        pass
+
+    _apply_price_format(document, sheet)
+
 
 def _property(name, value):
     import uno  # type: ignore
-
     prop = uno.createUnoStruct("com.sun.star.beans.PropertyValue")
     prop.Name = name
     prop.Value = value
@@ -51,22 +134,14 @@ def initialize_workbook(
         raise RuntimeError("Não foi possível obter o Desktop do LibreOffice.")
 
     document = desktop.loadComponentFromURL(
-        "private:factory/scalc",
-        "_blank",
-        0,
-        (),
+        "private:factory/scalc", "_blank", 0, ()
     )
     if document is None:
         raise RuntimeError("LibreOffice não criou o documento Calc.")
 
-    sheets = document.Sheets
-    first = sheets.getByIndex(0)
-    first.Name = CATALOG_SHEET
-    configure_catalog_sheet(first)
-
-    store_props = (
-        _property("FilterName", "calc8"),
-        _property("Overwrite", True),
+    initialize_document(document)
+    document.storeAsURL(
+        target.as_uri(),
+        (_property("FilterName", "calc8"), _property("Overwrite", True)),
     )
-    document.storeAsURL(target.as_uri(), store_props)
     return target
