@@ -82,7 +82,7 @@ def test_enum_values_preserve_sheet_contract():
         "ERRO",
         "DESATIVADO",
     }
-    assert {item.value for item in UpdateMode} == {"Automático", "Bloqueado"}
+    assert {item.value for item in UpdateMode} == {"Automático", "Manual", "Bloqueado"}
 
 
 def test_fixed_settings_and_partner_limits():
@@ -172,3 +172,21 @@ def test_existing_automation_id_is_preserved_without_a_planned_write():
     record, update = ImportRecord.from_sheet_row(7, ("stored-id",))
     assert record.automation_id == "stored-id"
     assert update is None
+
+def test_update_mode_accepts_manual():
+    assert UpdateMode("Manual") is UpdateMode.MANUAL
+
+
+def test_import_record_parses_manual_update_mode():
+    from automation.models import ImportRecord
+
+    row = [""] * 32
+    row[0] = "manual-row"
+    row[1] = "Sim"
+    row[2] = "Sim"
+    row[5] = "Manual"
+
+    record, planned = ImportRecord.from_sheet_row(2, row)
+
+    assert planned is None
+    assert record.update_mode is UpdateMode.MANUAL

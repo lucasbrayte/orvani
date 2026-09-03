@@ -76,6 +76,7 @@ class ImportStatus(StrEnum):
 
 class UpdateMode(StrEnum):
     AUTOMATICO = "Automático"
+    MANUAL = "Manual"
     BLOQUEADO = "Bloqueado"
 
 
