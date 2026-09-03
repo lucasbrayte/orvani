@@ -897,6 +897,112 @@ class _BlockedMode:
     pass
 
 
+def _manual_external_id(
+    record: ImportRecord,
+    partner: str,
+    source_url: str,
+    affiliate_url: str,
+) -> str:
+    extractors = {
+        "mercado_livre": extract_mercado_item_id,
+        "shopee": extract_shopee_item_id,
+        "shein": extract_shein_product_id,
+        "tiktok_shop": extract_tiktok_shop_product_id,
+    }
+    extractor = extractors.get(partner)
+    external_id = (
+        extractor(source_url) if extractor is not None else None
+    ) or (
+        extractor(affiliate_url) if extractor is not None else None
+    )
+    if external_id:
+        return external_id
+    if partner == "shein" and record.automation_id.strip():
+        return f"manual-{record.automation_id.strip()}"
+    raise InvalidProductDataError("O produto manual não tem identidade segura.")
+
+
+def _manual_import_snapshot(
+    record: ImportRecord,
+    fetched_at: datetime,
+) -> ProductSnapshot:
+    if (
+        not isinstance(record, ImportRecord)
+        or record.update_mode is not UpdateMode.MANUAL
+    ):
+        raise InvalidProductDataError("O registro manual é inválido.")
+
+    partner = _canonical_partner_key(record.partner)
+    if not partner or partner not in PARTNERS:
+        raise InvalidProductDataError("A plataforma manual é inválida.")
+
+    source_url = record.product_url.strip()
+    affiliate_url = record.affiliate_url.strip()
+    if _normalized_partner_link_or_none(source_url, partner) is None:
+        raise InvalidProductDataError("O link do produto manual é inválido.")
+    if _normalized_partner_link_or_none(affiliate_url, partner) is None:
+        raise InvalidProductDataError("O link afiliado manual é inválido.")
+
+    required_text = (
+        record.name,
+        record.description,
+        record.category,
+        record.subcategory,
+        record.product_type,
+    )
+    if any(not _text_or_blank(value) for value in required_text):
+        raise InvalidProductDataError("O produto manual está incompleto.")
+
+    if record.current_price is None:
+        raise InvalidProductDataError("O preço atual manual está ausente.")
+    _valid_price(record.current_price)
+
+    if record.previous_price is not None:
+        _valid_price(record.previous_price)
+        if record.previous_price <= record.current_price:
+            raise InvalidProductDataError("A promoção manual é inválida.")
+
+    images = tuple(
+        _unique_normalized_images(
+            (record.image_1, record.image_2, record.image_3, record.image_4)
+        )
+    )
+    if not images:
+        raise InvalidProductDataError("O produto manual exige uma imagem HTTPS.")
+
+    external_id = _manual_external_id(
+        record,
+        partner,
+        source_url,
+        affiliate_url,
+    )
+
+    return ProductSnapshot(
+        partner=partner,
+        external_id=external_id,
+        catalog_id=(
+            extract_mercado_catalog_id(source_url)
+            if partner == "mercado_livre"
+            else None
+        ),
+        source_url=source_url,
+        affiliate_url=affiliate_url,
+        name=record.name.strip(),
+        description=record.description.strip(),
+        current_price=record.current_price,
+        previous_price=record.previous_price,
+        currency=CATALOG_CURRENCY,
+        category=record.category.strip(),
+        subcategory=record.subcategory.strip(),
+        product_type=record.product_type.strip(),
+        coupon=record.coupon.strip() or None,
+        coupon_expires_at=None,
+        images=images,
+        available=None,
+        fetched_at=_utc_now(fetched_at),
+    )
+
+
 def _manual_mercado_livre_snapshot(
     record: ImportRecord, fetched_at: datetime
 ) -> ProductSnapshot:
