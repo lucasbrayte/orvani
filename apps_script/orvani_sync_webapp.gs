@@ -577,3 +577,196 @@ function orvaniApplyUpsertPlan_(sheet, headers, plan) {
     }
   }
 }
+
+function orvaniHandleUpsertCore_(products, state, dispatchPendingFn) {
+  if (!Array.isArray(products)) {
+    throw new Error("Produtos inválidos.");
+  }
+  if (!state || !Array.isArray(state.rows) || typeof state.applyPlan !== "function") {
+    throw new Error("Estado de upsert inválido.");
+  }
+  if (typeof dispatchPendingFn !== "function") {
+    throw new Error("Dispatcher inválido.");
+  }
+
+  const plan = orvaniPlanUpserts_(state.rows, products);
+
+  if (plan.mutations.length === 0) {
+    return {
+      changed: 0,
+      changedIds: [],
+    };
+  }
+
+  state.applyPlan(plan);
+  dispatchPendingFn();
+
+  return {
+    changed: plan.changedIds.length,
+    changedIds: plan.changedIds,
+  };
+}
+
+const ORVANI_MAX_REQUEST_BYTES_ = 262144;
+
+const ORVANI_IMPORT_HEADERS_ = Object.freeze([
+  "ID Automação", "Ativo", "Publicar", "Destaque", "Ordem", "Modo de Atualização",
+  "Link do Produto", "Link de Afiliado", "Plataforma", "ID Externo", "Nome",
+  "Descrição", "Categoria", "Subcategoria", "Tipo", "Preço Atual", "Preço Anterior",
+  "Desconto Calculado", "Cupom", "Validade do Cupom", "Imagem 1", "Imagem 2",
+  "Imagem 3", "Imagem 4", "Texto do Botão", "Status", "Mensagem",
+  "Tentativas Consecutivas", "Último Link Publicado", "Assinatura dos Dados",
+  "Última Verificação", "Última Atualização",
+]);
+
+function orvaniAcceptNonce_(nonce) {
+  const cache = CacheService.getScriptCache();
+  const key = "nonce:" + nonce;
+  if (cache.get(key) !== null) return false;
+  cache.put(key, "1", 180);
+  return true;
+}
+
+function orvaniReadImportState_(sheet) {
+  const headers = ORVANI_IMPORT_HEADERS_.slice();
+  const lastRow = Math.max(1, Number(sheet.getLastRow()) || 1);
+  const actualHeaders = sheet
+    .getRange(1, 1, 1, headers.length)
+    .getValues()[0];
+
+  if (orvaniCanonicalJson_(actualHeaders) !== orvaniCanonicalJson_(headers)) {
+    throw new Error("Cabeçalhos de Importações não correspondem ao contrato.");
+  }
+
+  if (lastRow < 2) {
+    return { headers, rows: [] };
+  }
+
+  const values = sheet
+    .getRange(2, 1, lastRow - 1, headers.length)
+    .getValues();
+
+  return {
+    headers,
+    rows: values.map((row, index) => ({
+      rowNumber: index + 2,
+      values: row,
+    })),
+  };
+}
+
+function orvaniHandleAction_(action, payload) {
+  const validated = orvaniValidateActionPayload_(action, payload);
+
+  if (action === "health") {
+    return {
+      ok: true,
+      action: "health",
+      service: "orvani-sync",
+      version: "v1",
+    };
+  }
+
+  if (action === "get_status") {
+    const sheet = orvaniGetImportSheet_();
+    const state = orvaniReadImportState_(sheet);
+    return {
+      ok: true,
+      action: "get_status",
+      rows: orvaniProjectStatusRows_(state.rows, validated.ids),
+    };
+  }
+
+  if (action === "upsert_products") {
+    const lock = LockService.getScriptLock();
+    lock.waitLock(10000);
+
+    try {
+      const sheet = orvaniGetImportSheet_();
+      const state = orvaniReadImportState_(sheet);
+      const runtimeState = {
+        rows: state.rows,
+        applyPlan(plan) {
+          orvaniApplyUpsertPlan_(sheet, state.headers, plan);
+        },
+      };
+
+      const result = orvaniHandleUpsertCore_(
+        validated.products,
+        runtimeState,
+        () => {
+          if (typeof dispatchPendingWorkflow_ !== "function") {
+            throw new Error("Dispatcher pending indisponível.");
+          }
+          dispatchPendingWorkflow_();
+        }
+      );
+
+      return {
+        ok: true,
+        action: "upsert_products",
+        changed: result.changed,
+        changedIds: result.changedIds,
+      };
+    } finally {
+      lock.releaseLock();
+    }
+  }
+
+  throw new Error("Ação não suportada.");
+}
+
+function orvaniJsonResponse_(value) {
+  return ContentService
+    .createTextOutput(JSON.stringify(value))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function doPost(e) {
+  try {
+    if (!e || !e.postData || typeof e.postData.contents !== "string") {
+      throw new Error("Corpo JSON obrigatório.");
+    }
+
+    const raw = e.postData.contents;
+    const contentLength = Number(e.postData.length);
+    if (
+      (Number.isFinite(contentLength) && contentLength > ORVANI_MAX_REQUEST_BYTES_) ||
+      raw.length > ORVANI_MAX_REQUEST_BYTES_
+    ) {
+      throw new Error("Requisição excede o tamanho permitido.");
+    }
+
+    let envelope;
+    try {
+      envelope = JSON.parse(raw);
+    } catch (_) {
+      throw new Error("JSON inválido.");
+    }
+
+    const secret = PropertiesService
+      .getScriptProperties()
+      .getProperty("ORVANI_SYNC_SECRET");
+
+    if (typeof secret !== "string" || !/^[0-9a-fA-F]{64}$/.test(secret)) {
+      throw new Error("Configuração de autenticação inválida.");
+    }
+
+    const verified = orvaniVerifyEnvelopeCore_(
+      envelope,
+      secret,
+      Math.floor(Date.now() / 1000),
+      orvaniHmacHex_,
+      orvaniAcceptNonce_
+    );
+
+    return orvaniJsonResponse_(
+      orvaniHandleAction_(verified.action, verified.payload)
+    );
+  } catch (_) {
+    return orvaniJsonResponse_({
+      ok: false,
+      error: "Falha ao processar solicitação.",
+    });
+  }
+}

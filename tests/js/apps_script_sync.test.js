@@ -31,6 +31,9 @@ globalThis.OrvaniAppsScriptCore = {
   orvaniApplyUpsertPlan_: typeof orvaniApplyUpsertPlan_ === "function"
     ? orvaniApplyUpsertPlan_
     : undefined,
+  orvaniHandleUpsertCore_: typeof orvaniHandleUpsertCore_ === "function"
+    ? orvaniHandleUpsertCore_
+    : undefined,
 };
 `;
 
@@ -528,4 +531,56 @@ test("apply upsert plan uses bounded updates and one complete create row", () =>
     appended[0][IMPORT_HEADERS.indexOf("ID Externo")],
     ""
   );
+});
+
+function fakeUpsertState(rows = []) {
+  return {
+    rows,
+    appliedPlans: [],
+    applyPlan(plan) {
+      this.appliedPlans.push(plan);
+    },
+  };
+}
+
+test("changed upsert batch requests exactly one pending dispatch", () => {
+  let dispatches = 0;
+  const state = fakeUpsertState([]);
+
+  const result = core.orvaniHandleUpsertCore_(
+    [
+      validProduct(),
+      validProduct({ "ID Automação": "uuid-2" }),
+    ],
+    state,
+    () => {
+      dispatches += 1;
+    }
+  );
+
+  assert.equal(result.changed, 2);
+  assert.equal(dispatches, 1);
+  assert.equal(state.appliedPlans.length, 1);
+});
+
+test("unchanged upsert batch does not request pending dispatch", () => {
+  let dispatches = 0;
+  const first = validProduct();
+  const second = validProduct({ "ID Automação": "uuid-2" });
+  const state = fakeUpsertState([
+    sheetRowFromProduct(first, 2),
+    sheetRowFromProduct(second, 3),
+  ]);
+
+  const result = core.orvaniHandleUpsertCore_(
+    [first, second],
+    state,
+    () => {
+      dispatches += 1;
+    }
+  );
+
+  assert.equal(result.changed, 0);
+  assert.equal(dispatches, 0);
+  assert.equal(state.appliedPlans.length, 0);
 });
