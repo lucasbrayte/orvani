@@ -155,3 +155,35 @@ def test_manual_mode_does_not_select_public_connector():
 
     assert report.final_status(2) is ImportStatus.PUBLICADO
     assert calls == []
+
+def test_manual_publication_uses_calc_values_verbatim():
+    engine = sync.SyncEngine(object(), object())
+    record = _manual_record(
+        name="Nome do Calc",
+        description="Descrição do Calc",
+        category="Casa",
+        subcategory="Cozinha",
+        current_price=Decimal("189.99"),
+        previous_price=Decimal("331.42"),
+        image_1="https://http2.mlstatic.com/manual.jpg",
+    )
+    snapshot = sync._manual_import_snapshot(record, NOW)
+
+    item, _changes, publication = engine._plan_record(
+        record,
+        snapshot,
+        (),
+        NOW,
+    )
+
+    assert item.final_status is ImportStatus.PUBLICADO
+    assert len(publication) == 1
+
+    values = publication[0].values[0]
+    assert values[3] == "Casa"
+    assert values[4] == "Cozinha"
+    assert values[5] == "Nome do Calc"
+    assert values[6] == "Descrição do Calc"
+    assert values[7] == Decimal("331.42")
+    assert values[8] == Decimal("189.99")
+    assert values[14] == "https://http2.mlstatic.com/manual.jpg"
