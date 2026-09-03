@@ -7,7 +7,7 @@ import re
 from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime
 from html.parser import HTMLParser
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from ..config import MERCADO_LIVRE_API_ALLOWED_HOSTS, PartnerConfig
 from ..http_client import SafeHttpClient
@@ -35,19 +35,40 @@ _API_CONTENT_TYPES = ("application/json",)
 _ITEM_ID = re.compile(r"(?<![A-Za-z0-9])MLB[-_]?(\d{6,})(?![A-Za-z0-9])", re.I)
 _EXACT_ITEM_ID = re.compile(r"MLB\d{6,}\Z", re.I)
 _CATALOG_ID = re.compile(r"MLB\d{4,}\Z", re.I)
+_CATALOG_PATH = re.compile(r"(?:^|/)p/MLB\d{4,}(?:/|$)", re.I)
+_PDP_FILTER_ITEM_ID = re.compile(r"(?:^|\|)item_id:MLB[-_]?(\d{6,})(?=\||$)", re.I)
 _STRUCTURED_ID_KEYS = frozenset({"sku", "productid", "mpn", "@id", "url"})
 _Clock = Callable[[], datetime]
 
 
 def extract_mercado_item_id(value: object) -> str | None:
-    """Normalize a bounded MLB item ID from a URL path or individual trusted value."""
+    """Normalize a bounded MLB item ID from a trusted URL shape or individual value."""
     if not isinstance(value, str) or not value or any(char.isspace() for char in value):
         return None
     try:
         parsed = urlsplit(value)
     except ValueError:
         return None
-    candidate = parsed.path if parsed.scheme or parsed.netloc or value.startswith("/") else value
+
+    is_url = bool(parsed.scheme or parsed.netloc or value.startswith("/"))
+    candidate = parsed.path if is_url else value
+
+    if is_url and _CATALOG_PATH.search(candidate):
+        try:
+            query = parse_qs(
+                parsed.query,
+                keep_blank_values=False,
+                strict_parsing=False,
+                max_num_fields=20,
+            )
+        except ValueError:
+            return None
+        for raw_filters in query.get("pdp_filters", ()):
+            match = _PDP_FILTER_ITEM_ID.search(raw_filters)
+            if match is not None:
+                return f"MLB{match.group(1)}"
+        return None
+
     match = _ITEM_ID.search(candidate)
     if match is None:
         return None

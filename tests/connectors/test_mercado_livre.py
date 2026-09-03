@@ -120,6 +120,29 @@ def test_extracts_only_bounded_item_ids_from_trusted_values(value, expected):
     assert extract_mercado_item_id(value) == expected
 
 
+def test_catalog_product_url_uses_the_offer_item_id_from_pdp_filters():
+    # /p/MLB... is a catalog product ID; the actual offer identity is the item_id filter.
+    from automation.connectors.mercado_livre import extract_mercado_item_id
+
+    url = (
+        "https://www.mercadolivre.com.br/conjunto-de-panelas/p/MLB62276281"
+        "?pdp_filters=item_id%3AMLB4431628133&extra_comm=true&brand_comm=false"
+    )
+
+    assert extract_mercado_item_id(url) == "MLB4431628133"
+
+
+def test_catalog_product_url_without_trusted_offer_filter_is_not_an_item_id():
+    from automation.connectors.mercado_livre import extract_mercado_item_id
+
+    assert (
+        extract_mercado_item_id(
+            "https://www.mercadolivre.com.br/conjunto-de-panelas/p/MLB62276281"
+        )
+        is None
+    )
+
+
 def test_maps_separate_item_and_catalog_ids(connector, api_fixture):
     # Collapsing the two identifiers would overwrite the item identity with the catalog identity.
     value = connector.snapshot_from_api(
