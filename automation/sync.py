@@ -953,7 +953,7 @@ def _manual_external_id(
     )
     if external_id:
         return external_id
-    if partner == "shein" and record.automation_id.strip():
+    if partner in {"shein", "shopee"} and record.automation_id.strip():
         return f"manual-{record.automation_id.strip()}"
     raise InvalidProductDataError("O produto manual não tem identidade segura.")
 
@@ -1137,6 +1137,17 @@ def _manual_mercado_livre_snapshot(
     )
 
 
+def _manual_shopee_fallback_ready(record: ImportRecord) -> bool:
+    try:
+        _manual_import_snapshot(
+            replace(record, update_mode=UpdateMode.MANUAL),
+            datetime(1970, 1, 1, tzinfo=UTC),
+        )
+    except InvalidProductDataError:
+        return False
+    return True
+
+
 def _manual_mercado_livre_fallback_ready(record: ImportRecord) -> bool:
     try:
         _manual_mercado_livre_snapshot(record, datetime(1970, 1, 1, tzinfo=UTC))
@@ -1255,6 +1266,11 @@ def _is_selected(record: ImportRecord, mode: str, now: datetime) -> bool:
         if (
             partner_key == "mercado_livre"
             and _manual_mercado_livre_fallback_ready(record)
+        ):
+            return True
+        if (
+            partner_key == "shopee"
+            and _manual_shopee_fallback_ready(record)
         ):
             return True
         old_link, old_data = _signature_parts(record.data_signature)

@@ -78,11 +78,66 @@ def test_shopee_fallback_stays_error_when_required_calc_data_is_missing():
     assert publication == ()
 
 
-def test_shopee_fallback_requires_safe_identity():
+def test_shopee_fallback_uses_automation_id_when_public_identity_is_missing():
     engine = SyncEngine(object(), object())
     record = _record(product_url="https://shopee.com.br/produto-sem-id")
+
     item, _changes, publication = engine._plan_record(
-        record, InvalidProductDataError("metadados públicos insuficientes"), (), NOW
+        record,
+        InvalidProductDataError("metadados públicos insuficientes"),
+        (),
+        NOW,
     )
-    assert item.final_status is ImportStatus.ERRO
-    assert publication == ()
+
+    assert item.final_status is ImportStatus.PUBLICADO
+    assert len(publication) == 1
+
+
+def _persisted_invalid_data_error(record):
+    from dataclasses import replace
+    from automation.sync import _permanent_error_hash, _record_link_hash
+
+    return replace(
+        record,
+        data_signature=(
+            f"v1:{_record_link_hash(record)}:"
+            f"{_permanent_error_hash('invalid_product_data')}"
+        ),
+    )
+
+
+def test_pending_retries_persisted_shopee_error_when_fallback_is_ready():
+    from automation.sync import _is_selected
+
+    record = _persisted_invalid_data_error(_record())
+    assert _is_selected(record, "pending", NOW) is True
+
+
+def test_pending_retries_shopee_when_url_has_no_extractable_item_id():
+    from automation.sync import _is_selected
+
+    record = _persisted_invalid_data_error(
+        _record(
+            product_url="https://shopee.com.br/share/product?ref=abc123",
+            affiliate_url="https://s.shopee.com.br/abc123",
+        )
+    )
+    assert _is_selected(record, "pending", NOW) is True
+
+
+def test_shopee_automation_id_identity_publishes_without_public_item_id():
+    engine = SyncEngine(object(), object())
+    record = _record(
+        product_url="https://shopee.com.br/share/product?ref=abc123",
+        affiliate_url="https://s.shopee.com.br/abc123",
+    )
+
+    item, _changes, publication = engine._plan_record(
+        record,
+        InvalidProductDataError("metadados públicos insuficientes"),
+        (),
+        NOW,
+    )
+
+    assert item.final_status is ImportStatus.PUBLICADO
+    assert len(publication) == 1
