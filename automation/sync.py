@@ -836,6 +836,20 @@ class SyncEngine:
                 pass
             else:
                 return self._plan_record(record, manual_snapshot, product_rows, now)
+        if (
+            isinstance(outcome, InvalidProductDataError)
+            and _canonical_partner_key(record.partner) == "shopee"
+        ):
+            try:
+                manual_snapshot = _manual_import_snapshot(
+                    replace(record, update_mode=UpdateMode.MANUAL),
+                    now,
+                )
+            except InvalidProductDataError:
+                pass
+            else:
+                outcome = manual_snapshot
+                manual_fallback_label = "Shopee"
         if isinstance(outcome, (UnsupportedUrlError, InvalidProductDataError)):
             category = "unsupported_url" if isinstance(outcome, UnsupportedUrlError) else "invalid_product_data"
             error_hash = _permanent_error_hash(category)
