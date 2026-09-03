@@ -755,6 +755,7 @@ class SyncEngine:
         product_rows: Sequence[ProductRow],
         now: datetime,
     ) -> tuple[SyncItemResult, tuple[SheetUpdate, ...], tuple[SheetUpdate, ...]]:
+        manual_fallback_label = ""
         if isinstance(outcome, _BlockedMode):
             target = replace(record, status=record.status, message="Modo bloqueado: dados preservados.")
             changes = _state_updates(target, now, worksheet=self._imports)
@@ -792,6 +793,17 @@ class SyncEngine:
             )
             changes = _classified_state_updates(target, now, worksheet=self._imports)
             return _result(record, target, bool(changes), False), changes, ()
+        if (
+            isinstance(outcome, InvalidProductDataError)
+            and _canonical_partner_key(record.partner) == "mercado_livre"
+        ):
+            try:
+                manual_snapshot = _manual_mercado_livre_snapshot(record, now)
+            except InvalidProductDataError:
+                pass
+            else:
+                outcome = manual_snapshot
+                manual_fallback_label = "Mercado Livre"
         if (
             isinstance(outcome, InvalidProductDataError)
             and _canonical_partner_key(record.partner) == "shein"
@@ -854,7 +866,17 @@ class SyncEngine:
             except InvalidProductDataError:
                 target = replace(target, status=ImportStatus.ATENCAO, message="Dados de publicação exigem revisão.")
             else:
-                target = replace(target, status=ImportStatus.PUBLICADO, message="Produto publicado.", last_published_url=record.affiliate_url or record.product_url)
+                publication_message = (
+                    f"Produto publicado via fallback manual do {manual_fallback_label}."
+                    if manual_fallback_label
+                    else "Produto publicado."
+                )
+                target = replace(
+                    target,
+                    status=ImportStatus.PUBLICADO,
+                    message=publication_message,
+                    last_published_url=record.affiliate_url or record.product_url,
+                )
         # A stable signature means no metadata rewrite; state/counter updates
         # still occur when their observable values changed.
         if changed:
@@ -873,6 +895,90 @@ class _ShopeeConversion:
 
 class _BlockedMode:
     pass
+
+
+def _manual_mercado_livre_snapshot(
+    record: ImportRecord, fetched_at: datetime
+) -> ProductSnapshot:
+    # Build a safe Mercado Livre snapshot from manually reviewed Importações fields.
+    if (
+        not isinstance(record, ImportRecord)
+        or _canonical_partner_key(record.partner) != "mercado_livre"
+    ):
+        raise InvalidProductDataError("O fallback manual do Mercado Livre é inválido.")
+
+    source_url = record.product_url.strip()
+    if _normalized_partner_link_or_none(source_url, "mercado_livre") is None:
+        raise InvalidProductDataError("O link do produto do Mercado Livre é inválido.")
+
+    affiliate_url = record.affiliate_url.strip()
+    if _normalized_partner_link_or_none(affiliate_url, "mercado_livre") is None:
+        raise InvalidProductDataError("O link afiliado do Mercado Livre é inválido.")
+
+    external_id = extract_mercado_item_id(source_url)
+    if not external_id:
+        raise InvalidProductDataError(
+            "O fallback manual do Mercado Livre exige um ID de oferta confiável."
+        )
+
+    required_text = (
+        record.name,
+        record.description,
+        record.category,
+        record.subcategory,
+        record.product_type,
+    )
+    if any(not _text_or_blank(value) for value in required_text):
+        raise InvalidProductDataError(
+            "O fallback manual do Mercado Livre está incompleto."
+        )
+
+    if record.current_price is None:
+        raise InvalidProductDataError(
+            "O preço manual do Mercado Livre está ausente."
+        )
+    _valid_price(record.current_price)
+
+    images = tuple(
+        _unique_normalized_images(
+            (record.image_1, record.image_2, record.image_3, record.image_4)
+        )
+    )
+    if not images:
+        raise InvalidProductDataError(
+            "O fallback manual do Mercado Livre exige uma imagem HTTPS."
+        )
+
+    coupon = record.coupon.strip() or None
+
+    return ProductSnapshot(
+        partner="mercado_livre",
+        external_id=external_id,
+        catalog_id=None,
+        source_url=source_url,
+        affiliate_url=affiliate_url,
+        name=record.name.strip(),
+        description=record.description.strip(),
+        current_price=record.current_price,
+        previous_price=record.previous_price,
+        currency=CATALOG_CURRENCY,
+        category=record.category.strip(),
+        subcategory=record.subcategory.strip(),
+        product_type=record.product_type.strip(),
+        coupon=coupon,
+        coupon_expires_at=None,
+        images=images,
+        available=None,
+        fetched_at=_utc_now(fetched_at),
+    )
+
+
+def _manual_mercado_livre_fallback_ready(record: ImportRecord) -> bool:
+    try:
+        _manual_mercado_livre_snapshot(record, datetime(1970, 1, 1, tzinfo=UTC))
+    except InvalidProductDataError:
+        return False
+    return True
 
 
 def _manual_shein_snapshot(record: ImportRecord, fetched_at: datetime) -> ProductSnapshot:
@@ -976,9 +1082,15 @@ def _is_selected(record: ImportRecord, mode: str, now: datetime) -> bool:
             return True
         return category == "temporary" and record.consecutive_attempts < 3
     if record.status is ImportStatus.ERRO:
+        partner_key = _canonical_partner_key(record.partner)
         if (
-            _canonical_partner_key(record.partner) == "shein"
+            partner_key == "shein"
             and _manual_shein_fallback_ready(record)
+        ):
+            return True
+        if (
+            partner_key == "mercado_livre"
+            and _manual_mercado_livre_fallback_ready(record)
         ):
             return True
         old_link, old_data = _signature_parts(record.data_signature)
