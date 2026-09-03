@@ -1027,6 +1027,8 @@ def _is_stale(value: Any, now: datetime) -> bool:
 
 
 def _fetch_url(record: ImportRecord) -> str:
+    if _canonical_partner_key(record.partner) == "mercado_livre":
+        return record.product_url.strip() or record.affiliate_url.strip()
     return record.affiliate_url.strip() or record.product_url.strip()
 
 
