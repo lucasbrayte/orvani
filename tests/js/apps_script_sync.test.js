@@ -22,6 +22,15 @@ globalThis.OrvaniAppsScriptCore = {
   orvaniPlanUpserts_: typeof orvaniPlanUpserts_ === "function"
     ? orvaniPlanUpserts_
     : undefined,
+  orvaniProjectStatusRows_: typeof orvaniProjectStatusRows_ === "function"
+    ? orvaniProjectStatusRows_
+    : undefined,
+  orvaniGetImportSheet_: typeof orvaniGetImportSheet_ === "function"
+    ? orvaniGetImportSheet_
+    : undefined,
+  orvaniApplyUpsertPlan_: typeof orvaniApplyUpsertPlan_ === "function"
+    ? orvaniApplyUpsertPlan_
+    : undefined,
 };
 `;
 
@@ -383,4 +392,140 @@ test("numeric sheet prices compare equal to numeric client prices", () => {
   const plan = core.orvaniPlanUpserts_([row], [product]);
   assert.equal(plan.mutations.length, 0);
   assert.deepEqual(Array.from(plan.changedIds), []);
+});
+
+function statusSheetRow() {
+  return sheetRowFromProduct(
+    validProduct(),
+    2,
+    {
+      "ID Externo": "MLB4431628133",
+      "Desconto Calculado": 43,
+      "Status": "PUBLICADO",
+      "Mensagem": "Produto publicado.",
+      "Último Link Publicado": "https://meli.la/abc123",
+      "Assinatura dos Dados": "signature-123",
+      "Última Verificação": "2026-09-03T15:00:00Z",
+      "Última Atualização": "2026-09-03T15:00:01Z",
+    }
+  );
+}
+
+test("status projection returns only backend status fields", () => {
+  const rows = [statusSheetRow()];
+  const result = core.orvaniProjectStatusRows_(rows, ["local-uuid"]);
+
+  assert.equal(result.length, 1);
+  assert.deepEqual(Object.keys(result[0]).sort(), [
+    "Assinatura dos Dados",
+    "Desconto Calculado",
+    "ID Automação",
+    "ID Externo",
+    "Mensagem",
+    "Status",
+    "Última Atualização",
+    "Última Verificação",
+    "Último Link Publicado",
+  ].sort());
+});
+
+test("import sheet access uses the configured spreadsheet id and exact sheet name", () => {
+  const calls = [];
+  const fakeSheet = { name: "Importações" };
+
+  context.SpreadsheetApp = {
+    openById(id) {
+      calls.push(["openById", id]);
+      return {
+        getSheetByName(name) {
+          calls.push(["getSheetByName", name]);
+          return fakeSheet;
+        },
+      };
+    },
+  };
+
+  const result = core.orvaniGetImportSheet_();
+
+  assert.equal(result, fakeSheet);
+  assert.deepEqual(calls, [
+    ["openById", "1oj0NbAkngUjjaYfJy5sEgzfDb7I0klHaUbvTzq6ZDB0"],
+    ["getSheetByName", "Importações"],
+  ]);
+});
+
+test("import sheet access rejects a missing Importações sheet", () => {
+  context.SpreadsheetApp = {
+    openById() {
+      return {
+        getSheetByName() {
+          return null;
+        },
+      };
+    },
+  };
+
+  assert.throws(
+    () => core.orvaniGetImportSheet_(),
+    /Importações|aba/i
+  );
+});
+
+test("apply upsert plan uses bounded updates and one complete create row", () => {
+  const writes = [];
+  const appended = [];
+
+  const fakeSheet = {
+    getRange(row, column) {
+      return {
+        setValue(value) {
+          writes.push({ row, column, value });
+        },
+      };
+    },
+    appendRow(values) {
+      appended.push(Array.from(values));
+    },
+  };
+
+  const existing = validProduct({ "Preço Atual": 189.99 });
+  const incoming = validProduct({ "Preço Atual": 179.99 });
+
+  const updatePlan = core.orvaniPlanUpserts_(
+    [sheetRowFromProduct(existing, 7)],
+    [incoming]
+  );
+  core.orvaniApplyUpsertPlan_(fakeSheet, IMPORT_HEADERS, updatePlan);
+
+  assert.ok(writes.length > 0);
+  assert.ok(writes.every((write) => write.row === 7));
+
+  const externalIdColumn = IMPORT_HEADERS.indexOf("ID Externo") + 1;
+  const discountColumn = IMPORT_HEADERS.indexOf("Desconto Calculado") + 1;
+  const lastLinkColumn = IMPORT_HEADERS.indexOf("Último Link Publicado") + 1;
+
+  assert.equal(writes.some((write) => write.column === externalIdColumn), false);
+  assert.equal(writes.some((write) => write.column === discountColumn), false);
+  assert.equal(writes.some((write) => write.column === lastLinkColumn), false);
+
+  const createPlan = core.orvaniPlanUpserts_(
+    [],
+    [validProduct({ "ID Automação": "create-uuid" })]
+  );
+  core.orvaniApplyUpsertPlan_(fakeSheet, IMPORT_HEADERS, createPlan);
+
+  assert.equal(appended.length, 1);
+  assert.equal(appended[0].length, 32);
+  assert.equal(
+    appended[0][IMPORT_HEADERS.indexOf("ID Automação")],
+    "create-uuid"
+  );
+  assert.equal(
+    appended[0][IMPORT_HEADERS.indexOf("Status")],
+    "NOVO"
+  );
+  assert.equal(
+    appended[0][IMPORT_HEADERS.indexOf("ID Externo")],
+    ""
+  );
 });

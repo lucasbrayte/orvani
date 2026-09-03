@@ -467,3 +467,113 @@ function orvaniPlanUpserts_(sheetRows, products) {
     changedIds,
   };
 }
+
+const ORVANI_STATUS_FIELDS_ = Object.freeze([
+  "ID Automação",
+  "ID Externo",
+  "Desconto Calculado",
+  "Status",
+  "Mensagem",
+  "Último Link Publicado",
+  "Assinatura dos Dados",
+  "Última Verificação",
+  "Última Atualização",
+]);
+
+function orvaniProjectStatusRows_(sheetRows, requestedIds) {
+  if (!Array.isArray(sheetRows) || !Array.isArray(requestedIds)) {
+    throw new Error("Dados de status inválidos.");
+  }
+
+  const headerIndex = orvaniImportHeaderIndex_();
+  const requested = new Set(
+    requestedIds.map((id) => String(id).trim())
+  );
+  const result = [];
+
+  for (const row of sheetRows) {
+    if (!row || !Array.isArray(row.values)) {
+      throw new Error("Linha de Importações inválida.");
+    }
+
+    const rawId = row.values[headerIndex["ID Automação"]];
+    const id = rawId === null || rawId === undefined
+      ? ""
+      : String(rawId).trim();
+
+    if (!id || !requested.has(id)) {
+      continue;
+    }
+
+    const projected = {};
+    for (const field of ORVANI_STATUS_FIELDS_) {
+      const value = row.values[headerIndex[field]];
+      projected[field] =
+        value === null || value === undefined ? "" : value;
+    }
+
+    result.push(projected);
+  }
+
+  return result;
+}
+
+const ORVANI_SPREADSHEET_ID_ = "1oj0NbAkngUjjaYfJy5sEgzfDb7I0klHaUbvTzq6ZDB0";
+const ORVANI_IMPORT_SHEET_ = "Importações";
+
+function orvaniGetImportSheet_() {
+  const spreadsheet = SpreadsheetApp.openById(ORVANI_SPREADSHEET_ID_);
+  const sheet = spreadsheet.getSheetByName(ORVANI_IMPORT_SHEET_);
+
+  if (!sheet) {
+    throw new Error('Aba "Importações" não encontrada.');
+  }
+
+  return sheet;
+}
+
+function orvaniApplyUpsertPlan_(sheet, headers, plan) {
+  if (!sheet || !Array.isArray(headers) || !plan || !Array.isArray(plan.mutations)) {
+    throw new Error("Plano de upsert inválido.");
+  }
+
+  const headerIndex = new Map();
+  headers.forEach((header, index) => {
+    headerIndex.set(header, index);
+  });
+
+  for (const mutation of plan.mutations) {
+    const valuesByHeader = mutation && mutation.valuesByHeader;
+    if (!valuesByHeader || typeof valuesByHeader !== "object") {
+      throw new Error("Mutation de upsert inválida.");
+    }
+
+    if (mutation.create) {
+      const rowValues = headers.map((header) => {
+        if (!Object.prototype.hasOwnProperty.call(valuesByHeader, header)) {
+          return "";
+        }
+        const value = valuesByHeader[header];
+        return value === null || value === undefined ? "" : value;
+      });
+
+      sheet.appendRow(rowValues);
+      continue;
+    }
+
+    if (!Number.isInteger(mutation.rowNumber) || mutation.rowNumber < 2) {
+      throw new Error("Número de linha inválido para update.");
+    }
+
+    for (const [header, value] of Object.entries(valuesByHeader)) {
+      if (!headerIndex.has(header)) {
+        throw new Error("Cabeçalho desconhecido no plano: " + header);
+      }
+
+      const column = headerIndex.get(header) + 1;
+      sheet
+        .getRange(mutation.rowNumber, column)
+        .setValue(value === null || value === undefined ? "" : value);
+    }
+  }
+}
