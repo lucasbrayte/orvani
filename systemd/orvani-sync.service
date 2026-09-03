@@ -1,0 +1,13 @@
+[Unit]
+Description=Orvani LibreOffice catalog sync
+After=graphical-session.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/orvani-sync-launcher
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target
