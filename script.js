@@ -373,11 +373,21 @@ const CONFIG = {
   function parseCurrentSheetPrice(raw, field, { optional = false } = {}) {
     const value = String(raw ?? "").trim();
     if (optional && value === "") return "";
-    if (/^(?:0|[1-9]\d*)[,.]\d{2}$/.test(value)) return value.replace(",", ".");
-    if (/^[1-9]\d{0,2}(?:\.\d{3})+,\d{2}$/.test(value)) {
-      return value.replace(/\./g, "").replace(",", ".");
+
+    let normalized;
+    if (/^(?:0|[1-9]\d*)(?:[,.]\d{1,2})?$/.test(value)) {
+      normalized = value.replace(",", ".");
+    } else if (/^[1-9]\d{0,2}(?:\.\d{3})+(?:,\d{1,2})?$/.test(value)) {
+      normalized = value.replace(/\./g, "").replace(",", ".");
+    } else {
+      throw new RowValidationError([field]);
     }
-    throw new RowValidationError([field]);
+
+    const parsed = Number(normalized);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      throw new RowValidationError([field]);
+    }
+    return parsed.toFixed(2);
   }
 
   function parseCurrentSheetType(raw) {

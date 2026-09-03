@@ -109,6 +109,31 @@ test("accepts the sanitized current fixture and maps sheet-only offer fields", (
   assert.equal(fone.featured, true);
 });
 
+test("accepts Google Sheets numeric price exports with zero, one, or two decimal places", () => {
+  const fixture = fs.readFileSync(path.join(__dirname, "../fixtures/catalog-current.csv"), "utf8");
+  const [, source] = core.parseCsv(fixture);
+
+  const cases = [
+    ["39", 39],
+    ["39.7", 39.7],
+    ["39,7", 39.7],
+    ["39.70", 39.7],
+    ["39,70", 39.7],
+  ];
+
+  for (const [rawPrice, expectedPrice] of cases) {
+    const row = source.slice();
+    row[7] = rawPrice;
+    row[8] = "";
+
+    const result = core.normalizeRows([currentHeaders, row]);
+
+    assert.equal(result.rejected.length, 0, `preco ${rawPrice} foi rejeitado`);
+    assert.equal(result.products.length, 1);
+    assert.equal(result.products[0].currentPrice, expectedPrice);
+  }
+});
+
 test("orders numerically then blanks with stable ties without mutating input", () => {
   const rows = [{ id: "a", order: null }, { id: "b", order: 2 }, { id: "c", order: 2 }, { id: "d", order: 1 }];
   const original = rows.slice();
