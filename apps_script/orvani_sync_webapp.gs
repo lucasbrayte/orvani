@@ -139,6 +139,32 @@ const ORVANI_CLIENT_FIELDS_ = Object.freeze([
   "Texto do Botão",
 ]);
 
+function orvaniNormalizeTransportPrice_(value, fieldName) {
+  if (value === "" || value === null || value === undefined) {
+    return "";
+  }
+
+  let numberValue;
+
+  if (typeof value === "number") {
+    numberValue = value;
+  } else if (
+    typeof value === "string" &&
+    /^\d+(?:\.\d+)?$/.test(value.trim())
+  ) {
+    numberValue = Number(value.trim());
+  } else {
+    throw new Error(fieldName + " deve ser um número decimal válido.");
+  }
+
+  if (!Number.isFinite(numberValue) || numberValue <= 0) {
+    throw new Error(fieldName + " deve ser positivo.");
+  }
+
+  return numberValue;
+}
+
+
 function orvaniValidateUpsertProduct_(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Produto inválido.");
@@ -204,15 +230,23 @@ function orvaniValidateUpsertProduct_(value) {
     }
   }
 
-  if (
-    Object.prototype.hasOwnProperty.call(value, "Preço Atual") &&
-    (
-      typeof value["Preço Atual"] !== "number" ||
-      !Number.isFinite(value["Preço Atual"]) ||
-      value["Preço Atual"] <= 0
-    )
-  ) {
-    throw new Error("Preço Atual deve ser positivo.");
+  let currentPrice;
+  if (Object.prototype.hasOwnProperty.call(value, "Preço Atual")) {
+    currentPrice = orvaniNormalizeTransportPrice_(
+      value["Preço Atual"],
+      "Preço Atual"
+    );
+    if (currentPrice === "") {
+      throw new Error("Preço Atual deve ser positivo.");
+    }
+  }
+
+  let previousPrice;
+  if (Object.prototype.hasOwnProperty.call(value, "Preço Anterior")) {
+    previousPrice = orvaniNormalizeTransportPrice_(
+      value["Preço Anterior"],
+      "Preço Anterior"
+    );
   }
 
   const result = {};
@@ -220,6 +254,13 @@ function orvaniValidateUpsertProduct_(value) {
     if (Object.prototype.hasOwnProperty.call(value, key)) {
       result[key] = value[key];
     }
+  }
+
+  if (currentPrice !== undefined) {
+    result["Preço Atual"] = currentPrice;
+  }
+  if (previousPrice !== undefined) {
+    result["Preço Anterior"] = previousPrice;
   }
 
   return result;

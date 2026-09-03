@@ -584,3 +584,25 @@ test("unchanged upsert batch does not request pending dispatch", () => {
   assert.equal(dispatches, 0);
   assert.equal(state.appliedPlans.length, 0);
 });
+
+
+test("upsert accepts canonical decimal string prices from LibreOffice", () => {
+  const product = validProduct();
+  product["Preço Atual"] = "133.76";
+  product["Preço Anterior"] = "199.90";
+
+  const result = core.orvaniValidateUpsertProduct_(product);
+
+  assert.equal(result["Preço Atual"], 133.76);
+  assert.equal(result["Preço Anterior"], 199.9);
+});
+
+test("upsert rejects non-canonical localized price strings", () => {
+  const product = validProduct();
+  product["Preço Atual"] = "133,76";
+
+  assert.throws(
+    () => core.orvaniValidateUpsertProduct_(product),
+    /preço atual|decimal|número/i
+  );
+});
