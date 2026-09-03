@@ -68,3 +68,16 @@ As cinco dependências Python diretas são fixadas para instalação reproduzív
 - [`PyYAML` 6.0.3](https://pypi.org/project/PyYAML/6.0.3/) interpreta offline o contrato do workflow.
 
 O [Node 24.20.0](https://nodejs.org/en/download/archive/v24.20.0) é usado somente para executar os testes nativos `node:test`. Ele não é dependência do frontend, não instala dependências e não é um gerenciador de pacotes neste projeto.
+
+## LibreOffice Calc → Apps Script Web App
+
+A integração do LibreOffice usa o Apps Script como ponte autenticada para a aba `Importações`.
+
+1. Copie `apps_script/orvani_sync_webapp.gs` para o projeto Apps Script da Orvani.
+2. Configure `ORVANI_SYNC_SECRET` com 64 caracteres hexadecimais.
+3. Preserve o `GITHUB_TOKEN` existente.
+4. Implante como Web App, executando como o proprietário e com acesso público.
+5. Use a URL `/exec` como `ORVANI_WEBAPP_URL`; não use `/dev`.
+
+A autenticação é HMAC-SHA256. O segredo não deve ficar no `.ods`, frontend ou Git.
+Veja `apps_script/README.md` para o checklist de implantação.
