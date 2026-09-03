@@ -647,6 +647,9 @@ class SyncEngine:
                     worksheet=self._products, headers=PRODUCTS_HEADERS,
                     phase="products",
                 )
+                _verify_product_updates_persisted(
+                    self._gateway, report.planned_product_updates
+                )
             if report.planned_import_updates:
                 _write_sync_batch(
                     self._gateway, report.planned_import_updates,
@@ -1270,6 +1273,77 @@ def _permanent_error_updates(record: ImportRecord, now: datetime, *, worksheet: 
         SheetUpdate(_import_range(record.row_number, "AD", "AE", worksheet), ((record.data_signature, now),)),
     )
 
+
+
+def _verify_product_updates_persisted(
+    gateway: SheetsGateway,
+    updates: Sequence[SheetUpdate],
+) -> None:
+    """Read back every planned Produtos range before exposing PUBLICADO."""
+    message = "Não foi possível confirmar a persistência dos produtos planejados."
+    for update in updates:
+        try:
+            response = gateway.get_values(update.range_name)
+        except Exception:
+            raise ConfigurationError(message) from None
+
+        if not isinstance(response, Mapping):
+            raise ConfigurationError(message)
+        rows = response.get("values", [])
+        if not isinstance(rows, list) or len(rows) != len(update.values):
+            raise ConfigurationError(message)
+
+        for expected_row, actual_row in zip(update.values, rows, strict=True):
+            if not isinstance(actual_row, list) or len(actual_row) > len(expected_row):
+                raise ConfigurationError(message)
+            padded_actual = [*actual_row, *([""] * (len(expected_row) - len(actual_row)))]
+            if any(
+                not _persisted_cell_equal(actual, expected)
+                for actual, expected in zip(padded_actual, expected_row, strict=True)
+            ):
+                raise ConfigurationError(message)
+
+
+def _persisted_cell_equal(actual: Any, expected: Any) -> bool:
+    if expected is None:
+        return actual in (None, "")
+    if isinstance(expected, bool):
+        return actual is expected
+    if isinstance(expected, Decimal):
+        if isinstance(actual, bool) or not isinstance(actual, (int, float, Decimal)):
+            return False
+        try:
+            value = Decimal(str(actual))
+        except (ArithmeticError, ValueError):
+            return False
+        return value.is_finite() and value == expected
+    if isinstance(expected, datetime):
+        point = (
+            expected.replace(tzinfo=UTC)
+            if expected.tzinfo is None or expected.utcoffset() is None
+            else expected.astimezone(UTC)
+        )
+        serial = (
+            point - datetime(1899, 12, 30, tzinfo=UTC)
+        ).total_seconds() / 86_400
+        return _persisted_number_equal(actual, serial)
+    if isinstance(expected, date):
+        serial = (
+            datetime(expected.year, expected.month, expected.day, tzinfo=UTC)
+            - datetime(1899, 12, 30, tzinfo=UTC)
+        ).days
+        return _persisted_number_equal(actual, float(serial))
+    return actual == expected
+
+
+def _persisted_number_equal(actual: Any, expected: float) -> bool:
+    if isinstance(actual, bool) or not isinstance(actual, (int, float, Decimal)):
+        return False
+    try:
+        value = float(actual)
+    except (OverflowError, TypeError, ValueError):
+        return False
+    return isfinite(value) and abs(value - expected) <= 1e-9
 
 def _write_sync_batch(
     gateway: SheetsGateway,

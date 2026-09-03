@@ -106,10 +106,14 @@ def main(argv: Sequence[str] | None = None, cli_dependencies: CliDependencies | 
             status_counts = ",".join(
                 f"{status}:{count}" for status, count in sorted(statuses.items())
             ) or "nenhum"
+            product_ranges = ";".join(
+                update.range_name for update in report.planned_product_updates
+            ) or "nenhum"
             print(
                 "sync: "
                 f"itens={len(report.items)} importações_planejadas={len(report.planned_import_updates)} "
-                f"produtos_planejados={len(report.planned_product_updates)} estados={status_counts} dry_run={int(arguments.dry_run)}"
+                f"produtos_planejados={len(report.planned_product_updates)} "
+                f"produtos_ranges={product_ranges} estados={status_counts} dry_run={int(arguments.dry_run)}"
             )
             return 0
         imports, products, issues = validate_environment(dependencies)
