@@ -305,3 +305,165 @@ function orvaniValidateActionPayload_(action, payload) {
 
   throw new Error("Ação não suportada.");
 }
+
+function orvaniImportHeaderIndex_() {
+  const headers = [
+    "ID Automação", "Ativo", "Publicar", "Destaque", "Ordem", "Modo de Atualização",
+    "Link do Produto", "Link de Afiliado", "Plataforma", "ID Externo", "Nome",
+    "Descrição", "Categoria", "Subcategoria", "Tipo", "Preço Atual", "Preço Anterior",
+    "Desconto Calculado", "Cupom", "Validade do Cupom", "Imagem 1", "Imagem 2",
+    "Imagem 3", "Imagem 4", "Texto do Botão", "Status", "Mensagem",
+    "Tentativas Consecutivas", "Último Link Publicado", "Assinatura dos Dados",
+    "Última Verificação", "Última Atualização",
+  ];
+
+  const index = {};
+  headers.forEach((header, position) => {
+    index[header] = position;
+  });
+  return index;
+}
+
+function orvaniEditableFromSheetRow_(row, headerIndex) {
+  const result = {};
+
+  for (const field of ORVANI_CLIENT_FIELDS_) {
+    const position = headerIndex[field];
+    result[field] = row.values[position];
+  }
+
+  return result;
+}
+
+function orvaniNormalizeEditableValue_(field, value) {
+  if (value === null || value === undefined) {
+    return "";
+  }
+
+  if (field === "Preço Atual" || field === "Preço Anterior") {
+    if (value === "") {
+      return "";
+    }
+
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+
+    if (typeof value === "string" && value.trim()) {
+      const numeric = Number(value.trim().replace(",", "."));
+      if (Number.isFinite(numeric)) {
+        return numeric;
+      }
+    }
+  }
+
+  return value;
+}
+
+function orvaniNormalizeEditableObject_(value) {
+  const result = {};
+
+  for (const field of ORVANI_CLIENT_FIELDS_) {
+    const raw = Object.prototype.hasOwnProperty.call(value, field)
+      ? value[field]
+      : "";
+    result[field] = orvaniNormalizeEditableValue_(field, raw);
+  }
+
+  return result;
+}
+
+function orvaniEditableEqual_(left, right) {
+  return orvaniCanonicalJson_(
+    orvaniNormalizeEditableObject_(left)
+  ) === orvaniCanonicalJson_(
+    orvaniNormalizeEditableObject_(right)
+  );
+}
+
+function orvaniMutationValues_(product) {
+  const valuesByHeader = {};
+
+  for (const field of ORVANI_CLIENT_FIELDS_) {
+    const raw = Object.prototype.hasOwnProperty.call(product, field)
+      ? product[field]
+      : "";
+    valuesByHeader[field] = raw === null || raw === undefined ? "" : raw;
+  }
+
+  valuesByHeader["Status"] = "NOVO";
+  valuesByHeader["Mensagem"] = "";
+  valuesByHeader["Tentativas Consecutivas"] = 0;
+  valuesByHeader["Assinatura dos Dados"] = "";
+  valuesByHeader["Última Verificação"] = "";
+  valuesByHeader["Última Atualização"] = "";
+
+  return valuesByHeader;
+}
+
+function orvaniPlanUpserts_(sheetRows, products) {
+  const headerIndex = orvaniImportHeaderIndex_();
+  const rowsById = new Map();
+
+  for (const row of sheetRows) {
+    if (
+      !row ||
+      !Array.isArray(row.values) ||
+      typeof row.rowNumber !== "number"
+    ) {
+      throw new Error("Linha de Importações inválida.");
+    }
+
+    const id = row.values[headerIndex["ID Automação"]];
+    if (typeof id !== "string" || !id.trim()) {
+      continue;
+    }
+
+    const normalizedId = id.trim();
+    if (rowsById.has(normalizedId)) {
+      throw new Error("ID Automação duplicado em Importações: " + normalizedId);
+    }
+
+    rowsById.set(normalizedId, row);
+  }
+
+  const mutations = [];
+  const changedIds = [];
+
+  for (const rawProduct of products) {
+    const product = orvaniValidateUpsertProduct_(rawProduct);
+    const id = product["ID Automação"].trim();
+    const existing = rowsById.get(id);
+
+    if (!existing) {
+      mutations.push({
+        create: true,
+        rowNumber: null,
+        valuesByHeader: orvaniMutationValues_(product),
+      });
+      changedIds.push(id);
+      continue;
+    }
+
+    const currentEditable = orvaniEditableFromSheetRow_(
+      existing,
+      headerIndex
+    );
+
+    if (orvaniEditableEqual_(currentEditable, product)) {
+      continue;
+    }
+
+    mutations.push({
+      create: false,
+      rowNumber: existing.rowNumber,
+      valuesByHeader: orvaniMutationValues_(product),
+    });
+    changedIds.push(id);
+  }
+
+  return {
+    mutations,
+    changedIds,
+  };
+}

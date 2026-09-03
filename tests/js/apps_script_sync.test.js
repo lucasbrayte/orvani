@@ -19,6 +19,9 @@ globalThis.OrvaniAppsScriptCore = {
   orvaniValidateActionPayload_: typeof orvaniValidateActionPayload_ === "function"
     ? orvaniValidateActionPayload_
     : undefined,
+  orvaniPlanUpserts_: typeof orvaniPlanUpserts_ === "function"
+    ? orvaniPlanUpserts_
+    : undefined,
 };
 `;
 
@@ -263,4 +266,121 @@ test("upsert rejects a fifth image field", () => {
     () => core.orvaniValidateUpsertProduct_(product),
     /campo não permitido/i
   );
+});
+
+const IMPORT_HEADERS = [
+  "ID Automação", "Ativo", "Publicar", "Destaque", "Ordem", "Modo de Atualização",
+  "Link do Produto", "Link de Afiliado", "Plataforma", "ID Externo", "Nome",
+  "Descrição", "Categoria", "Subcategoria", "Tipo", "Preço Atual", "Preço Anterior",
+  "Desconto Calculado", "Cupom", "Validade do Cupom", "Imagem 1", "Imagem 2",
+  "Imagem 3", "Imagem 4", "Texto do Botão", "Status", "Mensagem",
+  "Tentativas Consecutivas", "Último Link Publicado", "Assinatura dos Dados",
+  "Última Verificação", "Última Atualização"
+];
+
+function sheetRowFromProduct(product, rowNumber, backendOverrides = {}) {
+  const valuesByHeader = {
+    ...product,
+    "ID Externo": "MLB4431628133",
+    "Desconto Calculado": 43,
+    "Status": "PUBLICADO",
+    "Mensagem": "",
+    "Tentativas Consecutivas": 0,
+    "Último Link Publicado": product["Link de Afiliado"] || "",
+    "Assinatura dos Dados": "stored-signature",
+    "Última Verificação": "2026-09-03T12:00:00Z",
+    "Última Atualização": "2026-09-03T12:00:00Z",
+    ...backendOverrides,
+  };
+
+  return {
+    rowNumber,
+    values: IMPORT_HEADERS.map((header) =>
+      Object.prototype.hasOwnProperty.call(valuesByHeader, header)
+        ? valuesByHeader[header]
+        : ""
+    ),
+  };
+}
+
+test("new ID plans one create", () => {
+  const plan = core.orvaniPlanUpserts_([], [validProduct()]);
+  assert.equal(plan.mutations.length, 1);
+  assert.equal(plan.mutations[0].create, true);
+  assert.deepEqual(Array.from(plan.changedIds), ["local-uuid"]);
+});
+
+test("same ID and same editable data is idempotent", () => {
+  const rows = [sheetRowFromProduct(validProduct(), 2)];
+  const plan = core.orvaniPlanUpserts_(rows, [validProduct()]);
+  assert.equal(plan.mutations.length, 0);
+  assert.deepEqual(Array.from(plan.changedIds), []);
+});
+
+test("duplicate ID in sheet is rejected", () => {
+  const rows = [
+    sheetRowFromProduct(validProduct(), 2),
+    sheetRowFromProduct(validProduct(), 3),
+  ];
+
+  assert.throws(
+    () => core.orvaniPlanUpserts_(rows, [validProduct()]),
+    /duplicad/i
+  );
+});
+
+test("changed existing row plans server-owned reset values", () => {
+  const existing = validProduct({ "Preço Atual": 189.99 });
+  const incoming = validProduct({ "Preço Atual": 179.99 });
+  const rows = [
+    sheetRowFromProduct(existing, 7, {
+      "Status": "PUBLICADO",
+      "Mensagem": "ok",
+      "Tentativas Consecutivas": 3,
+      "Assinatura dos Dados": "old-signature",
+      "Última Verificação": "2026-09-03T12:00:00Z",
+      "Última Atualização": "2026-09-03T12:00:00Z",
+    }),
+  ];
+
+  const plan = core.orvaniPlanUpserts_(rows, [incoming]);
+  assert.equal(plan.mutations.length, 1);
+  assert.equal(plan.mutations[0].create, false);
+  assert.equal(plan.mutations[0].rowNumber, 7);
+  assert.equal(plan.mutations[0].valuesByHeader["Preço Atual"], 179.99);
+  assert.equal(plan.mutations[0].valuesByHeader.Status, "NOVO");
+  assert.equal(plan.mutations[0].valuesByHeader.Mensagem, "");
+  assert.equal(plan.mutations[0].valuesByHeader["Tentativas Consecutivas"], 0);
+  assert.equal(plan.mutations[0].valuesByHeader["Assinatura dos Dados"], "");
+  assert.equal(plan.mutations[0].valuesByHeader["Última Verificação"], "");
+  assert.equal(plan.mutations[0].valuesByHeader["Última Atualização"], "");
+});
+
+test("new row mutation also includes backend reset values", () => {
+  const plan = core.orvaniPlanUpserts_([], [validProduct()]);
+  const mutation = plan.mutations[0];
+
+  assert.equal(mutation.valuesByHeader.Status, "NOVO");
+  assert.equal(mutation.valuesByHeader.Mensagem, "");
+  assert.equal(mutation.valuesByHeader["Tentativas Consecutivas"], 0);
+  assert.equal(mutation.valuesByHeader["Assinatura dos Dados"], "");
+  assert.equal(mutation.valuesByHeader["Última Verificação"], "");
+  assert.equal(mutation.valuesByHeader["Última Atualização"], "");
+});
+
+test("numeric sheet prices compare equal to numeric client prices", () => {
+  const product = validProduct({
+    "Preço Atual": 189.99,
+    "Preço Anterior": 331.42,
+  });
+  const row = sheetRowFromProduct(product, 2);
+
+  const priceIndex = IMPORT_HEADERS.indexOf("Preço Atual");
+  const previousIndex = IMPORT_HEADERS.indexOf("Preço Anterior");
+  row.values[priceIndex] = "189.99";
+  row.values[previousIndex] = "331.42";
+
+  const plan = core.orvaniPlanUpserts_([row], [product]);
+  assert.equal(plan.mutations.length, 0);
+  assert.deepEqual(Array.from(plan.changedIds), []);
 });
