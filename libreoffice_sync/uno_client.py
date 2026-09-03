@@ -7,6 +7,21 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
+try:
+    import unohelper  # type: ignore
+    from com.sun.star.document import XDocumentEventListener  # type: ignore
+except ImportError:
+    class _UnoDocumentEventListenerBase:
+        """Fallback para testes fora de uma instalação UNO."""
+        pass
+else:
+    class _UnoDocumentEventListenerBase(
+        unohelper.Base,
+        XDocumentEventListener,
+    ):
+        """Base PyUNO necessária para converter o listener em interface UNO."""
+        pass
+
 from .models import BackendStatus, CatalogRow
 from .workbook_schema import CATALOG_SHEET
 
@@ -40,11 +55,11 @@ def _decimal(cell: Any) -> Decimal | None:
         return None
 
 
-class _SimpleSaveListener:
+class _SimpleSaveListener(_UnoDocumentEventListenerBase):
     def __init__(self, callback):
         self._callback = callback
 
-    def documentEventOccurred(self, event):
+    def documentEventOccured(self, event):
         if getattr(event, "EventName", "") in {"OnSaveDone", "OnSaveAsDone"}:
             self._callback()
 

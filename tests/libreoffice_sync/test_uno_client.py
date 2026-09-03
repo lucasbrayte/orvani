@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from libreoffice_sync.models import BackendStatus
-from libreoffice_sync.uno_client import LibreOfficeWorkbook
+from libreoffice_sync.uno_client import LibreOfficeWorkbook, _SimpleSaveListener
 
 
 EXPECTED = Path("/tmp/Orvani.ods")
@@ -183,3 +183,14 @@ def test_save_event_can_be_consumed_once():
     workbook.mark_saved()
     assert workbook.consume_save_event() is True
     assert workbook.consume_save_event() is False
+
+
+
+def test_save_listener_uses_libreoffice_callback_spelling():
+    calls = []
+    listener = _SimpleSaveListener(lambda: calls.append("saved"))
+    event = type("Event", (), {"EventName": "OnSaveDone"})()
+
+    listener.documentEventOccured(event)
+
+    assert calls == ["saved"]
