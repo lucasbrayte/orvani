@@ -756,6 +756,12 @@ const CONFIG = {
     return parameters.toString();
   }
 
+  function catalogSearchHref(value) {
+    const query = compactText(value);
+    const serialized = serializeCatalogFilters({ query });
+    return `catalogo.html${serialized ? `?${serialized}` : ""}`;
+  }
+
   function partnerLabel(partnerKey) {
     return CONFIG.affiliatePartners[partnerKey]?.label ?? partnerKey;
   }
@@ -880,6 +886,7 @@ const CONFIG = {
     collectionPresentation,
     readCatalogFilters,
     serializeCatalogFilters,
+    catalogSearchHref,
   });
 
   globalThis.OrvaniCore = OrvaniCore;
@@ -901,6 +908,7 @@ const CONFIG = {
       demo: false,
     };
     const reducedMotionQuery = globalThis.matchMedia("(prefers-reduced-motion: reduce)");
+    let heroReelController = null;
     let collectionCarouselController = null;
     let revealObserver = null;
     let refreshTimer = null;
@@ -1717,6 +1725,193 @@ const CONFIG = {
     // Movimento, navegação e inicialização por página
     // ---------------------------------------------------------------------
 
+    function createHeroVisualReel() {
+      const root = document.querySelector("#hero-visual-reel");
+      const viewport = document.querySelector("#hero-reel-viewport");
+      const track = document.querySelector("#hero-reel-track");
+      const progress = document.querySelector("#hero-reel-progress");
+      const live = document.querySelector("#hero-reel-live");
+
+      if (!root || !viewport || !track || !progress || !live) {
+        return { destroy() {} };
+      }
+
+      const slides = [...track.querySelectorAll(".hero-reel-slide")];
+      const pauseReasons = new Set();
+      const intervalMs = 5200;
+      let currentIndex = 0;
+      let timer = null;
+      let pointerId = null;
+      let pointerStartX = 0;
+      let pointerDeltaX = 0;
+
+      root.tabIndex = 0;
+
+      function clearTimer() {
+        if (timer !== null) globalThis.clearTimeout(timer);
+        timer = null;
+      }
+
+      function restartProgress() {
+        progress.style.animation = "none";
+        void progress.offsetWidth;
+        progress.style.animation = "";
+      }
+
+      function update({ userInitiated = false } = {}) {
+        root.dataset.heroReelIndex = String(currentIndex);
+        track.style.transform = `translate3d(${-currentIndex * 100}%, 0, 0)`;
+
+        slides.forEach((slide, index) => {
+          const active = index === currentIndex;
+          slide.setAttribute("aria-hidden", String(!active));
+          slide.toggleAttribute("inert", !active);
+        });
+
+        if (userInitiated) {
+          live.textContent = `Cena editorial ${currentIndex + 1} de ${slides.length}`;
+        }
+
+        restartProgress();
+      }
+
+      function schedule() {
+        clearTimer();
+
+        if (
+          slides.length <= 1 ||
+          reducedMotionQuery.matches ||
+          pauseReasons.size > 0
+        ) {
+          root.classList.add("is-paused");
+          return;
+        }
+
+        root.classList.remove("is-paused");
+        timer = globalThis.setTimeout(() => {
+          goTo(currentIndex + 1, { userInitiated: false });
+          schedule();
+        }, intervalMs);
+      }
+
+      function goTo(index, { userInitiated = true } = {}) {
+        if (slides.length === 0) return;
+        currentIndex = (index + slides.length) % slides.length;
+        update({ userInitiated });
+        if (userInitiated) schedule();
+      }
+
+      function pause(reason) {
+        pauseReasons.add(reason);
+        root.classList.add("is-paused");
+        clearTimer();
+      }
+
+      function resume(reason) {
+        pauseReasons.delete(reason);
+        schedule();
+      }
+
+      const onKeydown = (event) => {
+        if (event.key === "ArrowLeft") {
+          event.preventDefault();
+          goTo(currentIndex - 1);
+        } else if (event.key === "ArrowRight") {
+          event.preventDefault();
+          goTo(currentIndex + 1);
+        }
+      };
+
+      const onMouseEnter = () => pause("hover");
+      const onMouseLeave = () => resume("hover");
+      const onFocusIn = () => pause("focus");
+      const onFocusOut = (event) => {
+        if (!root.contains(event.relatedTarget)) resume("focus");
+      };
+
+      const onPointerDown = (event) => {
+        if (slides.length <= 1) return;
+        pointerId = event.pointerId;
+        pointerStartX = event.clientX;
+        pointerDeltaX = 0;
+        viewport.setPointerCapture?.(pointerId);
+        pause("pointer");
+      };
+
+      const onPointerMove = (event) => {
+        if (event.pointerId !== pointerId) return;
+        pointerDeltaX = event.clientX - pointerStartX;
+      };
+
+      const finishPointer = (event) => {
+        if (event.pointerId !== pointerId) return;
+
+        if (Math.abs(pointerDeltaX) >= 48) {
+          goTo(currentIndex + (pointerDeltaX < 0 ? 1 : -1));
+        }
+
+        viewport.releasePointerCapture?.(pointerId);
+        pointerId = null;
+        pointerDeltaX = 0;
+        resume("pointer");
+      };
+
+      const onVisibilityChange = () => {
+        if (document.hidden) pause("visibility");
+        else resume("visibility");
+      };
+
+      const onMotionChange = () => {
+        if (reducedMotionQuery.matches) pause("motion");
+        else resume("motion");
+      };
+
+      root.addEventListener("keydown", onKeydown);
+      root.addEventListener("mouseenter", onMouseEnter);
+      root.addEventListener("mouseleave", onMouseLeave);
+      root.addEventListener("focusin", onFocusIn);
+      root.addEventListener("focusout", onFocusOut);
+      viewport.addEventListener("pointerdown", onPointerDown);
+      viewport.addEventListener("pointermove", onPointerMove);
+      viewport.addEventListener("pointerup", finishPointer);
+      viewport.addEventListener("pointercancel", finishPointer);
+      document.addEventListener("visibilitychange", onVisibilityChange);
+      reducedMotionQuery.addEventListener?.("change", onMotionChange);
+
+      update();
+      schedule();
+
+      return {
+        destroy() {
+          clearTimer();
+          root.removeEventListener("keydown", onKeydown);
+          root.removeEventListener("mouseenter", onMouseEnter);
+          root.removeEventListener("mouseleave", onMouseLeave);
+          root.removeEventListener("focusin", onFocusIn);
+          root.removeEventListener("focusout", onFocusOut);
+          viewport.removeEventListener("pointerdown", onPointerDown);
+          viewport.removeEventListener("pointermove", onPointerMove);
+          viewport.removeEventListener("pointerup", finishPointer);
+          viewport.removeEventListener("pointercancel", finishPointer);
+          document.removeEventListener("visibilitychange", onVisibilityChange);
+          reducedMotionQuery.removeEventListener?.("change", onMotionChange);
+        },
+      };
+    }
+
+    function bindHeroSearch() {
+      const form = document.querySelector("#hero-search-form");
+      const input = document.querySelector("#hero-search-input");
+      if (!form || !input || form.dataset.heroSearchBound === "true") return;
+
+      form.dataset.heroSearchBound = "true";
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const destination = catalogSearchHref(input.value);
+        globalThis.location.assign(destination);
+      });
+    }
+
     function observeReveals(scope = document) {
       const nodes = scope.querySelectorAll?.(".reveal:not(.is-visible)") ?? [];
       if (reducedMotionQuery.matches || !revealObserver) {
@@ -1750,7 +1945,11 @@ const CONFIG = {
       setupRevealObserver();
     }
 
-    function initializeHomePage() {}
+    function initializeHomePage() {
+      heroReelController?.destroy();
+      heroReelController = createHeroVisualReel();
+      bindHeroSearch();
+    }
 
     function initializeCatalogPage() {
       state.filters = readCatalogFilters(globalThis.location.search);

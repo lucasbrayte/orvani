@@ -693,3 +693,52 @@ test("home uses an autoplay editorial collection carousel without product imager
   assert.match(css, /\.collection-carousel-track\s*\{[^}]*display:\s*flex/s);
   assert.match(css, /\.collection-slide\s*\{[^}]*min-width:\s*100%/s);
 });
+
+test("catalog search href preserves a user query for direct hero discovery", () => {
+  assert.equal(typeof core.catalogSearchHref, "function");
+  assert.equal(core.catalogSearchHref(""), "catalogo.html");
+  assert.equal(core.catalogSearchHref("   "), "catalogo.html");
+  assert.equal(
+    core.catalogSearchHref("fone bluetooth"),
+    "catalogo.html?busca=fone+bluetooth",
+  );
+  assert.equal(
+    core.catalogSearchHref("  tênis   corrida  "),
+    "catalogo.html?busca=t%C3%AAnis+corrida",
+  );
+});
+
+test("home hero replaces Ori with a visual reel and a real catalog search", () => {
+  const html = fs.readFileSync(path.join(__dirname, "../../index.html"), "utf8");
+  const script = fs.readFileSync(path.join(__dirname, "../../script.js"), "utf8");
+  const css = fs.readFileSync(path.join(__dirname, "../../style.css"), "utf8");
+
+  assert.match(html, /id="hero-visual-reel"/);
+  assert.match(html, /id="hero-reel-track"/);
+  assert.match(html, /id="hero-reel-progress"/);
+  assert.match(html, /id="hero-search-form"/);
+  assert.match(html, /id="hero-search-input"/);
+  assert.equal((html.match(/class="hero-reel-slide /g) ?? []).length, 3);
+
+  assert.doesNotMatch(html, /class="hero-mascot"/);
+  assert.doesNotMatch(html, /hero-mascot-scene/);
+  assert.doesNotMatch(html, /assets\/mascot\/orvani-ori/);
+  assert.doesNotMatch(html, /id="hero-reel-prev"/);
+  assert.doesNotMatch(html, /id="hero-reel-next"/);
+
+  assert.match(script, /function createHeroVisualReel/);
+  assert.match(script, /function bindHeroSearch/);
+  assert.match(script, /catalogSearchHref\(input\.value\)/);
+  assert.match(script, /globalThis\.location\.assign\(destination\)/);
+  assert.match(
+    script,
+    /function initializeHomePage\(\)\s*\{[\s\S]*?createHeroVisualReel\(\)[\s\S]*?bindHeroSearch\(\)/,
+  );
+
+  assert.match(css, /Hero visual reel and discovery search/);
+  assert.match(css, /\.hero-reel-track\s*\{[^}]*display:\s*flex/s);
+  assert.match(css, /\.hero-reel-slide\s*\{[^}]*min-width:\s*100%/s);
+
+  assert.match(html, /id="collection-carousel"/);
+  assert.match(script, /function createCollectionCarousel/);
+});

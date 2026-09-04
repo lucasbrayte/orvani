@@ -93,26 +93,97 @@
           </div>
 
           <div class="hero-showcase reveal">
-            <div class="hero-mascot-scene">
-              <span class="hero-mascot-halo" aria-hidden="true"></span>
-              <img
-                class="hero-mascot"
-                src="assets/mascot/orvani-ori-552.webp"
-                srcset="assets/mascot/orvani-ori-552.webp 552w, assets/mascot/orvani-ori-1102.webp 1102w"
-                sizes="(min-width: 64rem) 25rem, (min-width: 38rem) 24rem, 88vw"
-                width="1102"
-                height="1427"
-                decoding="async"
-                fetchpriority="high"
-                alt="Ori, a coruja mascote da Orvani"
+            <div class="hero-discovery-panel">
+              <div
+                class="hero-visual-reel"
+                id="hero-visual-reel"
+                role="region"
+                aria-roledescription="carrossel"
+                aria-label="Cenas editoriais Orvani"
               >
-              <div class="hero-mascot-badge">
-                <i class="bi bi-stars" aria-hidden="true"></i>
-                <span>
-                  <small>Ori • Guia Orvani</small>
-                  <strong>Descobrir ficou mais simples.</strong>
-                </span>
+                <div class="hero-reel-viewport" id="hero-reel-viewport">
+                  <div class="hero-reel-track" id="hero-reel-track">
+                    <article
+                      class="hero-reel-slide hero-reel-scene-one"
+                      aria-label="Cena editorial 1 de 3"
+                    >
+                      <span class="hero-reel-signature">ORVANI / 01</span>
+                      <div class="hero-reel-object hero-reel-object-primary" aria-hidden="true">
+                        <i class="bi bi-phone"></i>
+                      </div>
+                      <div class="hero-reel-object hero-reel-object-secondary" aria-hidden="true">
+                        <i class="bi bi-headphones"></i>
+                      </div>
+                      <div class="hero-reel-object hero-reel-object-tertiary" aria-hidden="true">
+                        <i class="bi bi-handbag"></i>
+                      </div>
+                      <span class="hero-reel-orbit hero-reel-orbit-one" aria-hidden="true"></span>
+                      <span class="hero-reel-orbit hero-reel-orbit-two" aria-hidden="true"></span>
+                    </article>
+
+                    <article
+                      class="hero-reel-slide hero-reel-scene-two"
+                      aria-label="Cena editorial 2 de 3"
+                    >
+                      <span class="hero-reel-signature">ORVANI / 02</span>
+                      <div class="hero-reel-object hero-reel-object-primary" aria-hidden="true">
+                        <i class="bi bi-laptop"></i>
+                      </div>
+                      <div class="hero-reel-object hero-reel-object-secondary" aria-hidden="true">
+                        <i class="bi bi-controller"></i>
+                      </div>
+                      <div class="hero-reel-object hero-reel-object-tertiary" aria-hidden="true">
+                        <i class="bi bi-window"></i>
+                      </div>
+                      <span class="hero-reel-orbit hero-reel-orbit-one" aria-hidden="true"></span>
+                      <span class="hero-reel-orbit hero-reel-orbit-two" aria-hidden="true"></span>
+                    </article>
+
+                    <article
+                      class="hero-reel-slide hero-reel-scene-three"
+                      aria-label="Cena editorial 3 de 3"
+                    >
+                      <span class="hero-reel-signature">ORVANI / 03</span>
+                      <div class="hero-reel-object hero-reel-object-primary" aria-hidden="true">
+                        <i class="bi bi-watch"></i>
+                      </div>
+                      <div class="hero-reel-object hero-reel-object-secondary" aria-hidden="true">
+                        <i class="bi bi-house-heart"></i>
+                      </div>
+                      <div class="hero-reel-object hero-reel-object-tertiary" aria-hidden="true">
+                        <i class="bi bi-stars"></i>
+                      </div>
+                      <span class="hero-reel-orbit hero-reel-orbit-one" aria-hidden="true"></span>
+                      <span class="hero-reel-orbit hero-reel-orbit-two" aria-hidden="true"></span>
+                    </article>
+                  </div>
+                </div>
+
+                <div class="hero-reel-progress" aria-hidden="true">
+                  <span id="hero-reel-progress"></span>
+                </div>
+                <p class="visually-hidden" id="hero-reel-live" aria-live="polite" aria-atomic="true"></p>
               </div>
+
+              <form class="hero-search" id="hero-search-form" role="search">
+                <label class="hero-search-label" for="hero-search-input">Buscar no catálogo</label>
+                <div class="hero-search-control">
+                  <i class="bi bi-search" aria-hidden="true"></i>
+                  <input
+                    id="hero-search-input"
+                    name="busca"
+                    type="search"
+                    inputmode="search"
+                    autocomplete="off"
+                    placeholder="O que você procura?"
+                    aria-label="O que você procura no catálogo?"
+                  >
+                  <button type="submit" aria-label="Buscar no catálogo">
+                    <span>Buscar</span>
+                    <i class="bi bi-arrow-right" aria-hidden="true"></i>
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         </div>
