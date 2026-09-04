@@ -2775,211 +2775,290 @@ main {
 }
 
 /* ========================================================================== */
-/* Static featured showcase: complete product images                          */
+
+/* ========================================================================== */
+/* Editorial collection carousel: catalog discovery without product imagery   */
 /* ========================================================================== */
 
-/*
- * O destaque principal não é mais um slider. A imagem fica em um palco
- * estável, centralizada e limitada pelas dimensões disponíveis, sem crop.
- */
-.featured-showcase {
-  display: grid;
-  width: min(100%, 70rem);
-  margin-inline: auto;
-  gap: 1rem;
+.collections-section {
+  padding-top: 2rem;
 }
 
-.featured-primary-card {
-  display: grid;
-  min-width: 0;
+.collection-carousel {
+  --collection-autoplay-duration: 5.2s;
+  position: relative;
+  width: min(100%, 72rem);
+  margin-inline: auto;
   overflow: hidden;
   border: 1px solid rgba(99, 91, 255, 0.16);
-  border-radius: var(--radius-lg);
-  background:
-    linear-gradient(135deg, rgba(99, 91, 255, 0.06), transparent 55%),
-    var(--surface);
+  border-radius: clamp(1.25rem, 4vw, 2rem);
+  background: var(--surface);
   box-shadow: var(--shadow-md);
+  outline: none;
 }
 
-.featured-primary-media {
-  display: grid !important;
-  width: 100%;
-  height: clamp(19rem, 70vw, 29rem);
-  min-height: 0 !important;
-  aspect-ratio: auto !important;
-  padding: clamp(1rem, 4vw, 2rem);
-  place-items: center;
-  border-radius: 0;
-  background:
-    radial-gradient(circle at 50% 42%, #fff 0 46%, rgba(238, 237, 255, 0.78) 100%),
-    var(--surface);
+.collection-carousel:focus-visible {
+  box-shadow:
+    0 0 0 3px rgba(99, 91, 255, 0.2),
+    var(--shadow-md);
 }
 
-.featured-primary-media img {
-  width: auto !important;
-  height: auto !important;
-  max-width: 100% !important;
-  max-height: 100% !important;
-  object-fit: contain !important;
-  object-position: center !important;
+.collection-carousel-viewport {
+  overflow: hidden;
+  touch-action: pan-y;
 }
 
-.featured-primary-content {
+.collection-carousel-track {
+  display: flex;
+  transition: transform 720ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+
+.collection-slide {
+  position: relative;
+  display: grid;
+  min-width: 100%;
+  min-height: clamp(26rem, 116vw, 34rem);
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.collection-slide-content {
+  position: relative;
+  z-index: 3;
   display: flex;
   min-width: 0;
   align-items: flex-start;
   flex-direction: column;
-  justify-content: center;
-  padding: clamp(1.35rem, 5vw, 2.6rem);
+  justify-content: flex-end;
+  padding: clamp(1.5rem, 7vw, 2.5rem);
+  color: #fff;
 }
 
-.featured-primary-content .featured-description {
-  max-width: 42rem;
-}
-
-.featured-primary-content .price-block {
-  margin-bottom: 1rem;
-}
-
-.featured-primary-button {
-  width: 100%;
-  max-width: 18rem;
-  margin-top: 0.2rem;
-}
-
-.featured-secondary-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.75rem;
-}
-
-.featured-secondary-card {
-  display: flex;
-  min-width: 0;
-  overflow: hidden;
-  flex-direction: column;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--surface);
-  box-shadow: var(--shadow-sm);
-  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
-}
-
-.featured-secondary-card:hover {
-  transform: translateY(-3px);
-  border-color: rgba(99, 91, 255, 0.34);
-  box-shadow: var(--shadow-md);
-}
-
-.featured-secondary-media {
-  display: grid !important;
-  width: 100%;
-  height: 9rem;
-  min-height: 0 !important;
-  aspect-ratio: auto !important;
-  padding: 0.75rem;
-  place-items: center;
-  border-radius: 0;
-  background:
-    radial-gradient(circle at 50% 45%, #fff, rgba(238, 240, 247, 0.92) 78%),
-    var(--canvas-deep);
-}
-
-.featured-secondary-media img {
-  width: auto !important;
-  height: auto !important;
-  max-width: 100% !important;
-  max-height: 100% !important;
-  object-fit: contain !important;
-  object-position: center !important;
-}
-
-.featured-secondary-content {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  flex-direction: column;
-  padding: 0.85rem;
-}
-
-.featured-secondary-category {
-  margin-bottom: 0.35rem;
-  overflow: hidden;
-  color: var(--brand-strong);
-  font-size: 0.65rem;
-  font-weight: 850;
-  letter-spacing: 0.07em;
-  text-overflow: ellipsis;
+.collection-slide-eyebrow {
+  margin-bottom: 0.75rem;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  white-space: nowrap;
 }
 
-.featured-secondary-title {
-  display: -webkit-box;
-  min-height: 2.4rem;
-  margin-bottom: 0.65rem;
-  overflow: hidden;
+.collection-slide-title {
+  max-width: 12ch;
+  margin-bottom: 0.8rem;
+  color: #fff;
+  font-size: clamp(2.2rem, 10vw, 4.5rem);
+  letter-spacing: -0.06em;
+  line-height: 0.96;
+}
+
+.collection-slide-description {
+  max-width: 36rem;
+  margin-bottom: 1.4rem;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: clamp(0.92rem, 3.8vw, 1.08rem);
+}
+
+.collection-slide-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding-bottom: 0.22rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.48);
+  color: #fff;
   font-size: 0.9rem;
-  line-height: 1.25;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  font-weight: 850;
 }
 
-.featured-secondary-content .price-block {
-  margin-bottom: 0.7rem;
+.collection-slide-link:hover {
+  border-bottom-color: #fff;
 }
 
-.featured-secondary-content .current-price {
-  font-size: 1rem;
+.collection-slide-link-arrow {
+  transition: transform 180ms ease;
 }
 
-.featured-secondary-content .previous-price {
-  font-size: 0.66rem;
+.collection-slide-link:hover .collection-slide-link-arrow {
+  transform: translateX(0.25rem);
 }
 
-.featured-secondary-content .discount-badge {
-  font-size: 0.6rem;
+.collection-slide-visual {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
 }
 
-.featured-secondary-button {
+.collection-slide-icon {
+  position: absolute;
+  top: 12%;
+  right: -8%;
+  display: grid;
+  width: min(68vw, 21rem);
+  aspect-ratio: 1;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 34%;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.94);
+  font-size: clamp(6rem, 31vw, 11rem);
+  transform: rotate(10deg);
+}
+
+.collection-shape {
+  position: absolute;
+  display: block;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.collection-shape-one {
+  top: -8rem;
+  left: -6rem;
+  width: 18rem;
+  height: 18rem;
+}
+
+.collection-shape-two {
+  right: 18%;
+  bottom: -7rem;
+  width: 15rem;
+  height: 15rem;
+}
+
+.collection-shape-three {
+  top: 41%;
+  left: 58%;
+  width: 4.2rem;
+  height: 4.2rem;
+  background: rgba(255, 255, 255, 0.11);
+}
+
+.collection-theme-1 {
+  background:
+    radial-gradient(circle at 78% 20%, rgba(255, 255, 255, 0.16), transparent 25%),
+    linear-gradient(135deg, #3328b8, #635bff 58%, #846fff);
+}
+
+.collection-theme-2 {
+  background:
+    radial-gradient(circle at 80% 16%, rgba(255, 255, 255, 0.15), transparent 28%),
+    linear-gradient(135deg, #111827, #26375e 58%, #635bff);
+}
+
+.collection-theme-3 {
+  background:
+    radial-gradient(circle at 82% 20%, rgba(255, 255, 255, 0.18), transparent 26%),
+    linear-gradient(135deg, #642f68, #9b4a82 54%, #d0739d);
+}
+
+.collection-theme-4 {
+  background:
+    radial-gradient(circle at 80% 18%, rgba(255, 255, 255, 0.18), transparent 27%),
+    linear-gradient(135deg, #254f4c, #34746c 56%, #54a08f);
+}
+
+.collection-theme-5 {
+  background:
+    radial-gradient(circle at 82% 18%, rgba(255, 255, 255, 0.18), transparent 26%),
+    linear-gradient(135deg, #713c1f, #ad6335 56%, #dc8f56);
+}
+
+.collection-carousel-progress {
+  position: absolute;
+  z-index: 5;
+  right: 1.25rem;
+  bottom: 1rem;
+  left: 1.25rem;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+  pointer-events: none;
+}
+
+.collection-carousel-progress span {
+  display: block;
   width: 100%;
-  min-height: 2.45rem;
-  margin-top: auto;
-  padding: 0.55rem;
-  font-size: 0.74rem;
+  height: 100%;
+  border-radius: inherit;
+  background: rgba(255, 255, 255, 0.9);
+  transform: scaleX(0);
+  transform-origin: left;
+  animation: collection-progress var(--collection-autoplay-duration) linear forwards;
+}
+
+.collection-carousel.is-paused .collection-carousel-progress span {
+  animation-play-state: paused;
+}
+
+@keyframes collection-progress {
+  to {
+    transform: scaleX(1);
+  }
 }
 
 @media (min-width: 48rem) {
-  .featured-primary-card {
-    grid-template-columns: minmax(0, 1.1fr) minmax(20rem, 0.9fr);
+  .collection-slide {
+    grid-template-columns: minmax(0, 0.95fr) minmax(20rem, 1.05fr);
+    min-height: 28rem;
   }
 
-  .featured-primary-media {
-    height: 30rem;
+  .collection-slide-content {
+    justify-content: center;
+    padding: clamp(2.5rem, 6vw, 4.5rem);
   }
 
-  .featured-secondary-grid {
-    gap: 1rem;
+  .collection-slide-icon {
+    top: 50%;
+    right: 5%;
+    width: min(32vw, 24rem);
+    font-size: clamp(8rem, 16vw, 13rem);
+    transform: translateY(-50%) rotate(10deg);
   }
 
-  .featured-secondary-media {
-    height: 11rem;
-    padding: 1rem;
+  .collection-shape-one {
+    top: -10rem;
+    left: 38%;
+    width: 24rem;
+    height: 24rem;
+  }
+
+  .collection-shape-two {
+    right: -5rem;
+    bottom: -9rem;
+    width: 22rem;
+    height: 22rem;
+  }
+
+  .collection-carousel-progress {
+    right: 2rem;
+    bottom: 1.5rem;
+    left: 2rem;
   }
 }
 
 @media (min-width: 64rem) {
-  .featured-secondary-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+  .collection-slide {
+    min-height: 31rem;
   }
 }
 
-@media (max-width: 22rem) {
-  .featured-secondary-grid {
-    grid-template-columns: minmax(0, 1fr);
+@media (prefers-reduced-motion: reduce) {
+  .collection-carousel-track {
+    transition: none !important;
   }
 
-  .featured-primary-media {
-    height: 17rem;
+  .collection-carousel-progress span {
+    animation: none !important;
+    transform: scaleX(1);
+  }
+
+  .collection-slide-link-arrow {
+    transition: none !important;
   }
 }

@@ -638,6 +638,103 @@ const CONFIG = {
     return `bi ${rule?.[1] ?? "bi-grid"}`;
   }
 
+  const COLLECTION_EDITORIAL_RULES = Object.freeze([
+    Object.freeze({
+      keywords: Object.freeze([
+        "eletronico", "eletronicos", "tecnologia", "informatica",
+        "computador", "computadores", "celular", "celulares", "telefonia",
+      ]),
+      rank: 10,
+      eyebrow: "Tecnologia & eletrônicos",
+      description: "Descubra soluções, acessórios e novidades para deixar sua rotina mais conectada.",
+    }),
+    Object.freeze({
+      keywords: Object.freeze(["game", "games", "jogo", "jogos"]),
+      rank: 20,
+      eyebrow: "Games & entretenimento",
+      description: "Encontre experiências para jogar, assistir, relaxar e aproveitar seu tempo livre.",
+    }),
+    Object.freeze({
+      keywords: Object.freeze([
+        "moda", "roupa", "roupas", "calcado", "calcados",
+        "vestuario", "acessorio", "acessorios", "relogio", "relogios",
+      ]),
+      rank: 30,
+      eyebrow: "Moda & estilo",
+      description: "Explore escolhas para renovar detalhes do seu visual e descobrir novas combinações.",
+    }),
+    Object.freeze({
+      keywords: Object.freeze([
+        "casa", "cozinha", "decoracao", "moveis", "jogo-de-cama",
+        "ferramenta", "ferramentas",
+      ]),
+      rank: 40,
+      eyebrow: "Casa & dia a dia",
+      description: "Ideias úteis para organizar, equipar e transformar os espaços da sua rotina.",
+    }),
+    Object.freeze({
+      keywords: Object.freeze([
+        "aplicativo", "aplicativos", "software", "curso", "cursos",
+        "educacao", "livro", "livros",
+      ]),
+      rank: 50,
+      eyebrow: "Experiências digitais",
+      description: "Conheça opções de aprendizado, software, aplicativos e outras descobertas digitais.",
+    }),
+    Object.freeze({
+      keywords: Object.freeze([
+        "beleza", "maquiagem", "perfume", "perfumes", "perfumaria",
+        "saude", "fitness", "bem-estar",
+      ]),
+      rank: 60,
+      eyebrow: "Beleza & bem-estar",
+      description: "Encontre escolhas para autocuidado, rotina e bem-estar em um só caminho.",
+    }),
+  ]);
+
+  function editorialRuleForCategory(value) {
+    const normalized = categorySlug(value);
+    return COLLECTION_EDITORIAL_RULES.find((rule) =>
+      rule.keywords.some((keyword) => categoryHasKeyword(normalized, keyword))
+    ) ?? null;
+  }
+
+  function collectionPresentation(categories) {
+    const seen = new Set();
+    const prepared = [];
+
+    for (const value of Array.isArray(categories) ? categories : []) {
+      const title = compactText(value);
+      const slug = categorySlug(title);
+      if (!title || !slug || seen.has(slug)) continue;
+      seen.add(slug);
+
+      const rule = editorialRuleForCategory(title);
+      prepared.push({
+        title,
+        slug,
+        rank: rule?.rank ?? 100,
+        eyebrow: rule?.eyebrow ?? "Descubra esta coleção",
+        description: rule?.description
+          ?? "Explore uma seleção do catálogo e encontre novas possibilidades dentro desta categoria.",
+        iconClass: categoryIconClass(title),
+      });
+    }
+
+    prepared.sort((left, right) =>
+      left.rank - right.rank || left.title.localeCompare(right.title, "pt-BR")
+    );
+
+    return Object.freeze(prepared.slice(0, 5).map((item, index) => Object.freeze({
+      title: item.title,
+      eyebrow: item.eyebrow,
+      description: item.description,
+      iconClass: item.iconClass,
+      href: `catalogo.html?categoria=${encodeURIComponent(item.slug)}`,
+      theme: `collection-theme-${index + 1}`,
+    })));
+  }
+
   function readCatalogFilters(search = "") {
     const parameters = new URLSearchParams(String(search).replace(/^\?/, ""));
     const type = compactText(parameters.get("tipo"));
@@ -780,6 +877,7 @@ const CONFIG = {
     productDetailsPresentation,
     categorySlug,
     categoryIconClass,
+    collectionPresentation,
     readCatalogFilters,
     serializeCatalogFilters,
   });
@@ -803,6 +901,7 @@ const CONFIG = {
       demo: false,
     };
     const reducedMotionQuery = globalThis.matchMedia("(prefers-reduced-motion: reduce)");
+    let collectionCarouselController = null;
     let revealObserver = null;
     let refreshTimer = null;
     let lastFetchAt = 0;
@@ -1007,90 +1106,229 @@ const CONFIG = {
       return card;
     }
 
-    function featuredDetailsButton(product, className) {
-      const button = element("button", className, "Ver detalhes");
-      button.type = "button";
-      button.setAttribute("aria-label", `Ver detalhes de ${product.name}`);
-      button.addEventListener("click", () => openProductDetails(product, button));
-      return button;
-    }
+    function createCollectionSlide(collection, index, total) {
+      const slide = element("article", `collection-slide ${collection.theme}`);
+      slide.dataset.collectionIndex = String(index);
+      slide.setAttribute("role", "group");
+      slide.setAttribute("aria-roledescription", "slide");
+      slide.setAttribute("aria-label", `${collection.title}, ${index + 1} de ${total}`);
 
-    function createFeaturedPrimaryCard(product) {
-      const card = element("article", "featured-primary-card reveal");
-      card.dataset.productId = product.id;
-
-      const media = productImage(product, { eager: true });
-      media.classList.add("featured-primary-media");
-
-      const content = element("div", "featured-primary-content");
-      const view = offerPresentation(product);
-      const coupon = couponBlock(view);
-
+      const content = element("div", "collection-slide-content");
       content.append(
-        element("span", "featured-partner", partnerLabel(product.partner)),
-        element("h3", "featured-title", product.name),
-        element("p", "featured-description", product.shortDescription),
-        priceBlock(product, view),
-      );
-      if (coupon) content.append(coupon);
-      content.append(
-        featuredDetailsButton(
-          product,
-          "button button-primary product-details-button featured-primary-button",
-        ),
+        element("span", "collection-slide-eyebrow", collection.eyebrow),
+        element("h3", "collection-slide-title", collection.title),
+        element("p", "collection-slide-description", collection.description),
       );
 
-      card.append(media, content);
-      return card;
-    }
+      const link = element("a", "collection-slide-link", "Explorar coleção");
+      link.href = collection.href;
+      link.append(element("span", "collection-slide-link-arrow", "→"));
+      content.append(link);
 
-    function createFeaturedSecondaryCard(product, index) {
-      const card = element("article", "featured-secondary-card reveal");
-      card.dataset.productId = product.id;
-
-      const media = productImage(product, { eager: index < 2 });
-      media.classList.add("featured-secondary-media");
-
-      const content = element("div", "featured-secondary-content");
-      const view = offerPresentation(product);
-      content.append(
-        element("span", "featured-secondary-category", product.category),
-        element("h3", "featured-secondary-title", product.name),
-        priceBlock(product, view),
-        featuredDetailsButton(
-          product,
-          "button button-secondary product-details-button featured-secondary-button",
-        ),
+      const visual = element("div", "collection-slide-visual");
+      visual.setAttribute("aria-hidden", "true");
+      const icon = element("i", `collection-slide-icon ${collection.iconClass}`);
+      visual.append(
+        element("span", "collection-shape collection-shape-one"),
+        element("span", "collection-shape collection-shape-two"),
+        element("span", "collection-shape collection-shape-three"),
+        icon,
       );
 
-      card.append(media, content);
-      return card;
+      slide.append(content, visual);
+      return slide;
     }
 
-    function renderFeatured(products) {
-      const featured = products.filter((product) => product.featured);
-      const visibleFeatured = featured.slice(0, 5);
-      const section = document.querySelector("#destaques");
-      const primary = document.querySelector("#featured-primary");
-      const secondary = document.querySelector("#featured-secondary");
-      if (!section || !primary || !secondary) return;
+    function createCollectionCarousel(collections) {
+      const root = document.querySelector("#collection-carousel");
+      const viewport = document.querySelector("#collection-carousel-viewport");
+      const track = document.querySelector("#collection-carousel-track");
+      const progress = document.querySelector("#collection-carousel-progress");
+      const live = document.querySelector("#collection-carousel-live");
 
-      section.hidden = visibleFeatured.length === 0;
-
-      if (visibleFeatured.length === 0) {
-        primary.replaceChildren();
-        secondary.replaceChildren();
-        secondary.hidden = true;
-        return;
+      if (!root || !viewport || !track || !progress || !live) {
+        return { destroy() {} };
       }
 
-      primary.replaceChildren(createFeaturedPrimaryCard(visibleFeatured[0]));
+      const slides = [...track.querySelectorAll(".collection-slide")];
+      const pauseReasons = new Set();
+      const intervalMs = 5200;
+      let currentIndex = 0;
+      let timer = null;
+      let pointerId = null;
+      let pointerStartX = 0;
+      let pointerDeltaX = 0;
 
-      const secondaryProducts = visibleFeatured.slice(1);
-      secondary.replaceChildren(...secondaryProducts.map(createFeaturedSecondaryCard));
-      secondary.hidden = secondaryProducts.length === 0;
+      root.tabIndex = 0;
 
-      observeReveals(section);
+      function clearTimer() {
+        if (timer !== null) globalThis.clearTimeout(timer);
+        timer = null;
+      }
+
+      function restartProgress() {
+        progress.style.animation = "none";
+        void progress.offsetWidth;
+        progress.style.animation = "";
+      }
+
+      function update({ userInitiated = false } = {}) {
+        root.dataset.collectionIndex = String(currentIndex);
+        track.style.transform = `translate3d(${-currentIndex * 100}%, 0, 0)`;
+
+        slides.forEach((slide, index) => {
+          const active = index === currentIndex;
+          slide.setAttribute("aria-hidden", String(!active));
+          slide.toggleAttribute("inert", !active);
+        });
+
+        if (userInitiated && collections[currentIndex]) {
+          live.textContent = `${collections[currentIndex].title}, coleção ${currentIndex + 1} de ${slides.length}`;
+        }
+
+        restartProgress();
+      }
+
+      function schedule() {
+        clearTimer();
+        if (
+          slides.length <= 1 ||
+          reducedMotionQuery.matches ||
+          pauseReasons.size > 0
+        ) {
+          root.classList.add("is-paused");
+          return;
+        }
+
+        root.classList.remove("is-paused");
+        timer = globalThis.setTimeout(() => {
+          goTo(currentIndex + 1, { userInitiated: false });
+          schedule();
+        }, intervalMs);
+      }
+
+      function goTo(index, { userInitiated = true } = {}) {
+        if (slides.length === 0) return;
+        currentIndex = (index + slides.length) % slides.length;
+        update({ userInitiated });
+        if (userInitiated) schedule();
+      }
+
+      function pause(reason) {
+        pauseReasons.add(reason);
+        root.classList.add("is-paused");
+        clearTimer();
+      }
+
+      function resume(reason) {
+        pauseReasons.delete(reason);
+        schedule();
+      }
+
+      const onKeydown = (event) => {
+        if (event.key === "ArrowLeft") {
+          event.preventDefault();
+          goTo(currentIndex - 1);
+        } else if (event.key === "ArrowRight") {
+          event.preventDefault();
+          goTo(currentIndex + 1);
+        }
+      };
+
+      const onMouseEnter = () => pause("hover");
+      const onMouseLeave = () => resume("hover");
+      const onFocusIn = () => pause("focus");
+      const onFocusOut = (event) => {
+        if (!root.contains(event.relatedTarget)) resume("focus");
+      };
+
+      const onPointerDown = (event) => {
+        if (slides.length <= 1) return;
+        pointerId = event.pointerId;
+        pointerStartX = event.clientX;
+        pointerDeltaX = 0;
+        viewport.setPointerCapture?.(pointerId);
+        pause("pointer");
+      };
+
+      const onPointerMove = (event) => {
+        if (event.pointerId !== pointerId) return;
+        pointerDeltaX = event.clientX - pointerStartX;
+      };
+
+      const finishPointer = (event) => {
+        if (event.pointerId !== pointerId) return;
+        if (Math.abs(pointerDeltaX) >= 48) {
+          goTo(currentIndex + (pointerDeltaX < 0 ? 1 : -1));
+        }
+        viewport.releasePointerCapture?.(pointerId);
+        pointerId = null;
+        pointerDeltaX = 0;
+        resume("pointer");
+      };
+
+      const onVisibilityChange = () => {
+        if (document.hidden) pause("visibility");
+        else resume("visibility");
+      };
+
+      const onMotionChange = () => {
+        if (reducedMotionQuery.matches) pause("motion");
+        else resume("motion");
+      };
+
+      root.addEventListener("keydown", onKeydown);
+      root.addEventListener("mouseenter", onMouseEnter);
+      root.addEventListener("mouseleave", onMouseLeave);
+      root.addEventListener("focusin", onFocusIn);
+      root.addEventListener("focusout", onFocusOut);
+      viewport.addEventListener("pointerdown", onPointerDown);
+      viewport.addEventListener("pointermove", onPointerMove);
+      viewport.addEventListener("pointerup", finishPointer);
+      viewport.addEventListener("pointercancel", finishPointer);
+      document.addEventListener("visibilitychange", onVisibilityChange);
+      reducedMotionQuery.addEventListener?.("change", onMotionChange);
+
+      update();
+      schedule();
+
+      return {
+        destroy() {
+          clearTimer();
+          root.removeEventListener("keydown", onKeydown);
+          root.removeEventListener("mouseenter", onMouseEnter);
+          root.removeEventListener("mouseleave", onMouseLeave);
+          root.removeEventListener("focusin", onFocusIn);
+          root.removeEventListener("focusout", onFocusOut);
+          viewport.removeEventListener("pointerdown", onPointerDown);
+          viewport.removeEventListener("pointermove", onPointerMove);
+          viewport.removeEventListener("pointerup", finishPointer);
+          viewport.removeEventListener("pointercancel", finishPointer);
+          document.removeEventListener("visibilitychange", onVisibilityChange);
+          reducedMotionQuery.removeEventListener?.("change", onMotionChange);
+        },
+      };
+    }
+
+    function renderCollections(products) {
+      const collections = collectionPresentation(categoriesFrom(products));
+      const section = document.querySelector("#destaques");
+      const track = document.querySelector("#collection-carousel-track");
+      if (!section || !track) return;
+
+      collectionCarouselController?.destroy();
+      collectionCarouselController = null;
+
+      section.hidden = collections.length === 0;
+      track.replaceChildren(
+        ...collections.map((collection, index) =>
+          createCollectionSlide(collection, index, collections.length)
+        ),
+      );
+
+      if (collections.length > 0) {
+        collectionCarouselController = createCollectionCarousel(collections);
+      }
     }
 
     function categoriesFrom(products) {
@@ -1134,7 +1372,7 @@ const CONFIG = {
     }
 
     function renderHome(products) {
-      renderFeatured(products);
+      renderCollections(products);
       renderCategories(products);
     }
 
@@ -1529,8 +1767,6 @@ const CONFIG = {
     }
 
     globalThis.OrvaniApp = Object.freeze({
-      createFeaturedPrimaryCard,
-      createFeaturedSecondaryCard,
       createProductCard,
       openProductDetails,
       loadCatalog,

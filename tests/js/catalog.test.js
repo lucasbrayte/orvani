@@ -177,23 +177,12 @@ test("home catalog rendering never replaces the institutional hero artwork", () 
 
 test("rendered catalog images explicitly preserve the whole image inside their frame", () => {
   const { app, core: browserCore } = loadBrowserApp();
-  const css = fs.readFileSync(path.join(__dirname, "../../style.css"), "utf8");
-
   const card = app.createProductCard(browserCore.DEMO_PRODUCTS[0], 0);
   const catalogImage = card.children[0].children[0];
 
   assert.equal(catalogImage.tagName, "IMG");
   assert.equal(catalogImage.style.objectFit, "contain");
   assert.equal(catalogImage.style.objectPosition, "center");
-
-  assert.match(
-    css,
-    /\.featured-primary-media img\s*\{[^}]*width:\s*auto\s*!important;[^}]*height:\s*auto\s*!important;[^}]*max-width:\s*100%\s*!important;[^}]*max-height:\s*100%\s*!important;[^}]*object-fit:\s*contain\s*!important;/s,
-  );
-  assert.match(
-    css,
-    /\.featured-secondary-media img\s*\{[^}]*width:\s*auto\s*!important;[^}]*height:\s*auto\s*!important;[^}]*max-width:\s*100%\s*!important;[^}]*max-height:\s*100%\s*!important;[^}]*object-fit:\s*contain\s*!important;/s,
-  );
 });
 
 test("selects semantic Bootstrap Icons from normalized category names", () => {
@@ -546,7 +535,7 @@ test("catalog cards expose a separate details action instead of a direct store l
   assert.equal(footer.children.some((node) => node.tagName === "A"), false);
 });
 
-test("responsive catalog contract keeps two phone columns, static featured showcase, original logo and a product dialog", () => {
+test("responsive catalog contract keeps two phone columns, editorial collections, original logo and a product dialog", () => {
   const css = fs.readFileSync(path.join(__dirname, "../../style.css"), "utf8");
   const catalogHtml = fs.readFileSync(path.join(__dirname, "../../catalogo.html"), "utf8");
   const homeHtml = fs.readFileSync(path.join(__dirname, "../../index.html"), "utf8");
@@ -559,10 +548,9 @@ test("responsive catalog contract keeps two phone columns, static featured showc
   assert.match(css, /\.brand-logo\s*\{[^}]*color-scheme:\s*only light/s);
   assert.match(css, /\.product-dialog\s*\{/);
 
-  assert.match(homeHtml, /id="featured-showcase"/);
-  assert.match(homeHtml, /id="featured-primary"/);
-  assert.match(homeHtml, /id="featured-secondary"/);
-  assert.doesNotMatch(homeHtml, /id="featured-carousel"/);
+  assert.match(homeHtml, /id="collection-carousel"/);
+  assert.match(homeHtml, /id="collection-carousel-track"/);
+  assert.doesNotMatch(homeHtml, /id="featured-showcase"/);
 
   assert.match(catalogHtml, /<dialog class="product-dialog" id="product-dialog"/);
   assert.match(catalogHtml, /id="product-dialog-description"/);
@@ -570,20 +558,11 @@ test("responsive catalog contract keeps two phone columns, static featured showc
   assert.match(catalogHtml, /id="product-dialog-offer"/);
 });
 
-test("image polish keeps featured showcase and detail images fully visible and details CTA branded", () => {
+test("image polish keeps catalog and detail images fully visible and details CTA branded", () => {
   const css = fs.readFileSync(path.join(__dirname, "../../style.css"), "utf8");
 
   assert.match(css, /Product image polish: full visibility and branded details CTA/);
-  assert.match(css, /Static featured showcase: complete product images/);
 
-  assert.match(
-    css,
-    /\.featured-primary-media img\s*\{[^}]*width:\s*auto\s*!important;[^}]*height:\s*auto\s*!important;[^}]*max-width:\s*100%\s*!important;[^}]*max-height:\s*100%\s*!important;[^}]*object-fit:\s*contain\s*!important;/s,
-  );
-  assert.match(
-    css,
-    /\.featured-secondary-media img\s*\{[^}]*width:\s*auto\s*!important;[^}]*height:\s*auto\s*!important;[^}]*max-width:\s*100%\s*!important;[^}]*max-height:\s*100%\s*!important;[^}]*object-fit:\s*contain\s*!important;/s,
-  );
   assert.match(
     css,
     /\.product-dialog-image-wrap img\s*\{[^}]*width:\s*auto[^}]*height:\s*auto[^}]*max-width:\s*100%[^}]*max-height:\s*100%[^}]*object-fit:\s*contain\s*!important/s,
@@ -646,32 +625,71 @@ test("home categories use a compact two-column phone layout with a very-narrow f
   );
 });
 
-test("home featured products use a static showcase with complete images and no carousel runtime", () => {
+test("home no longer renders product-focused featured showcase markup", () => {
+  const html = fs.readFileSync(path.join(__dirname, "../../index.html"), "utf8");
+  const script = fs.readFileSync(path.join(__dirname, "../../script.js"), "utf8");
+
+  assert.doesNotMatch(html, /id="featured-showcase"/);
+  assert.doesNotMatch(html, /id="featured-primary"/);
+  assert.doesNotMatch(html, /id="featured-secondary"/);
+  assert.doesNotMatch(script, /function createFeaturedPrimaryCard/);
+  assert.doesNotMatch(script, /function createFeaturedSecondaryCard/);
+});
+
+test("collection presentation turns live categories into at most five catalog destinations", () => {
+  assert.equal(typeof core.collectionPresentation, "function");
+
+  const collections = core.collectionPresentation([
+    "Cursos",
+    "Games",
+    "Eletrônicos",
+    "Moda",
+    "Casa",
+    "Beleza",
+    "Games",
+  ]);
+
+  assert.equal(collections.length, 5);
+  assert.equal(collections[0].title, "Eletrônicos");
+  assert.equal(collections[0].href, "catalogo.html?categoria=eletronicos");
+  assert.equal(collections[0].iconClass.includes("bi-"), true);
+
+  const games = collections.find((item) => item.title === "Games");
+  assert.equal(games.href, "catalogo.html?categoria=games");
+
+  assert.equal(
+    collections.every((item) =>
+      item.title &&
+      item.description &&
+      item.href.startsWith("catalogo.html?categoria=") &&
+      item.theme.startsWith("collection-theme-")
+    ),
+    true,
+  );
+});
+
+test("home uses an autoplay editorial collection carousel without product imagery or navigation buttons", () => {
   const html = fs.readFileSync(path.join(__dirname, "../../index.html"), "utf8");
   const script = fs.readFileSync(path.join(__dirname, "../../script.js"), "utf8");
   const css = fs.readFileSync(path.join(__dirname, "../../style.css"), "utf8");
 
-  assert.match(html, /id="featured-showcase"/);
-  assert.match(html, /id="featured-primary"/);
-  assert.match(html, /id="featured-secondary"/);
-  assert.match(html, /<dialog class="product-dialog" id="product-dialog"/);
-  assert.doesNotMatch(html, /id="featured-carousel"/);
-  assert.doesNotMatch(html, /id="carousel-track"/);
-  assert.doesNotMatch(html, /id="carousel-controls"/);
+  assert.match(html, /id="collection-carousel"/);
+  assert.match(html, /id="collection-carousel-track"/);
+  assert.match(html, /id="collection-carousel-progress"/);
+  assert.doesNotMatch(html, /id="featured-primary"/);
+  assert.doesNotMatch(html, /id="featured-secondary"/);
+  assert.doesNotMatch(html, /id="carousel-prev"/);
+  assert.doesNotMatch(html, /id="carousel-next"/);
+  assert.doesNotMatch(html, /<dialog class="product-dialog" id="product-dialog"/);
 
-  assert.match(script, /function createFeaturedPrimaryCard/);
-  assert.match(script, /function createFeaturedSecondaryCard/);
-  assert.match(script, /featured\.slice\(0,\s*5\)/);
-  assert.doesNotMatch(script, /function createCarousel/);
-  assert.doesNotMatch(script, /carouselController/);
+  assert.match(script, /function createCollectionSlide/);
+  assert.match(script, /function createCollectionCarousel/);
+  assert.match(script, /globalThis\.setTimeout/);
+  assert.match(script, /collectionPresentation\(categoriesFrom\(products\)\)/);
+  assert.doesNotMatch(script, /function createFeaturedPrimaryCard/);
+  assert.doesNotMatch(script, /function createFeaturedSecondaryCard/);
 
-  assert.match(css, /Static featured showcase: complete product images/);
-  assert.match(
-    css,
-    /\.featured-primary-media img\s*\{[^}]*width:\s*auto\s*!important;[^}]*height:\s*auto\s*!important;[^}]*max-width:\s*100%\s*!important;[^}]*max-height:\s*100%\s*!important;[^}]*object-fit:\s*contain\s*!important;/s,
-  );
-  assert.match(
-    css,
-    /\.featured-secondary-media img\s*\{[^}]*width:\s*auto\s*!important;[^}]*height:\s*auto\s*!important;[^}]*max-width:\s*100%\s*!important;[^}]*max-height:\s*100%\s*!important;[^}]*object-fit:\s*contain\s*!important;/s,
-  );
+  assert.match(css, /Editorial collection carousel: catalog discovery without product imagery/);
+  assert.match(css, /\.collection-carousel-track\s*\{[^}]*display:\s*flex/s);
+  assert.match(css, /\.collection-slide\s*\{[^}]*min-width:\s*100%/s);
 });
