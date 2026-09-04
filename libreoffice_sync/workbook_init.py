@@ -38,6 +38,38 @@ def _list_validation(range_obj, values: tuple[str, ...]) -> None:
     range_obj.Validation = validation
 
 
+_WRAPPED_TEXT_COLUMNS = (5, 6, 8, 9, 17, 18, 19, 20, 21, 23)
+_DATA_ROW_HEIGHT = 700
+_FIRST_DATA_ROW_INDEX = 1
+_LAST_DATA_ROW_INDEX = 1999
+
+
+def _apply_text_layout(sheet) -> None:
+    if hasattr(sheet, "getCellRangeByPosition"):
+        for col in _WRAPPED_TEXT_COLUMNS:
+            try:
+                sheet.getCellRangeByPosition(
+                    col,
+                    _FIRST_DATA_ROW_INDEX,
+                    col,
+                    _LAST_DATA_ROW_INDEX,
+                ).IsTextWrapped = True
+            except Exception:
+                pass
+
+    if hasattr(sheet, "Rows"):
+        for row_index in range(
+            _FIRST_DATA_ROW_INDEX,
+            _LAST_DATA_ROW_INDEX + 1,
+        ):
+            try:
+                row = sheet.Rows.getByIndex(row_index)
+                row.OptimalHeight = False
+                row.Height = _DATA_ROW_HEIGHT
+            except Exception:
+                pass
+
+
 def configure_catalog_sheet(sheet) -> None:
     for col, header in enumerate(ALL_HEADERS):
         sheet.getCellByPosition(col, 0).String = header
@@ -55,6 +87,8 @@ def configure_catalog_sheet(sheet) -> None:
             sheet.Columns.getByIndex(col).Width = width
         except Exception:
             pass
+
+    _apply_text_layout(sheet)
 
     # Compatibilidade com os fakes unitários antigos:
     # em LibreOffice real este método existe; em fakes mínimos ele pode não existir.

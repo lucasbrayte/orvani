@@ -63,6 +63,7 @@ class UiFakeRange:
     def __init__(self):
         self.Validation = UiFakeValidation()
         self.NumberFormat = None
+        self.IsTextWrapped = False
 
 
 class UiFakeCell:
@@ -84,11 +85,26 @@ class UiFakeColumns:
         return self.items[index]
 
 
+class UiFakeRow:
+    def __init__(self):
+        self.Height = 0
+        self.OptimalHeight = True
+
+
+class UiFakeRows:
+    def __init__(self):
+        self.items = {}
+
+    def getByIndex(self, index):
+        return self.items.setdefault(index, UiFakeRow())
+
+
 class UiFakeSheet:
     def __init__(self):
         self.cells = {}
         self.ranges = {}
         self.Columns = UiFakeColumns()
+        self.Rows = UiFakeRows()
         self.Name = "Sheet1"
 
     def getCellByPosition(self, col, row):
@@ -153,3 +169,20 @@ def test_initialize_document_applies_full_catalog_ui_contract():
 
     assert sheet.Columns.getByIndex(8).Width > 1000
     assert sheet.Columns.getByIndex(9).Width > sheet.Columns.getByIndex(8).Width
+
+    wrapped_columns = (5, 6, 8, 9, 17, 18, 19, 20, 21, 23)
+    for col in wrapped_columns:
+        assert (
+            sheet.getCellRangeByPosition(col, 1, col, 1999).IsTextWrapped
+            is True
+        )
+
+    assert (
+        sheet.getCellRangeByPosition(13, 1, 13, 1999).IsTextWrapped
+        is False
+    )
+
+    for row_index in (1, 2, 1999):
+        row = sheet.Rows.getByIndex(row_index)
+        assert row.Height == 700
+        assert row.OptimalHeight is False
