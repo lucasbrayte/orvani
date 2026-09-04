@@ -55,3 +55,15 @@ def test_payload_omits_blank_prices(valid_row):
 
     assert "Preço Atual" not in payload
     assert "Preço Anterior" not in payload
+
+def test_split_mercado_dropdown_value_is_repaired_from_links(valid_row):
+    row = replace(
+        valid_row,
+        partner="mercado",
+        product_url="https://www.mercadolivre.com.br/produto/p/MLB123456",
+        affiliate_url="https://meli.la/abc123",
+    )
+
+    payload = editable_payload(row)
+
+    assert payload["Plataforma"] == "Mercado Livre"

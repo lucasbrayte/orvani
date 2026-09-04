@@ -149,9 +149,7 @@ def test_initialize_document_applies_full_catalog_ui_contract():
     assert "Bloqueado" in update_mode.Formula1
 
     partner = sheet.getCellRangeByPosition(7, 1, 7, 1999).Validation
-    assert "Mercado Livre" in partner.Formula1
-    assert "Shopee" in partner.Formula1
-    assert "SHEIN" in partner.Formula1
+    assert partner.Formula1 == '"Mercado Livre";"Shopee";"SHEIN"'
 
     assert sheet.Columns.getByIndex(8).Width > 1000
     assert sheet.Columns.getByIndex(9).Width > sheet.Columns.getByIndex(8).Width

@@ -28,7 +28,11 @@ def _list_validation(range_obj, values: tuple[str, ...]) -> None:
         )
     except Exception:
         validation.Type = "LIST"
-    validation.Formula1 = ";".join(values)
+    # Cada entrada precisa ser uma string explícita na fórmula.
+    # Sem aspas, valores com espaço (ex.: Mercado Livre) podem ser
+    # interpretados como tokens separados pelo Calc.
+    escaped = tuple(value.replace('"', '""') for value in values)
+    validation.Formula1 = ";".join(f'"{value}"' for value in escaped)
     validation.ShowErrorMessage = True
     validation.ErrorMessage = "Selecione um valor permitido."
     range_obj.Validation = validation

@@ -77,8 +77,11 @@ def normalize_catalog_row(row: CatalogRow) -> CatalogRow:
     }
 
     partner = _canonical(row.partner, partners)
-    if not str(row.partner or "").strip():
-        partner = infer_partner(row.product_url, row.affiliate_url)
+    allowed_partners = {"Mercado Livre", "Shopee", "SHEIN"}
+    if partner not in allowed_partners:
+        inferred = infer_partner(row.product_url, row.affiliate_url)
+        if inferred:
+            partner = inferred
 
     return replace(
         row,
