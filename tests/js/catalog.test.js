@@ -176,15 +176,23 @@ test("home catalog rendering never replaces the institutional hero artwork", () 
 });
 
 test("rendered catalog images explicitly preserve the whole image inside their frame", () => {
-  const { app, core, nodes } = loadBrowserApp();
+  const { app, core: browserCore } = loadBrowserApp();
+  const css = fs.readFileSync(path.join(__dirname, "../../style.css"), "utf8");
 
-  app.renderHome([core.DEMO_PRODUCTS[0]]);
-  const slide = nodes.track.children[0];
-  const image = slide.children[0].children[0];
+  const card = app.createProductCard(browserCore.DEMO_PRODUCTS[0], 0);
+  const catalogImage = card.children[0].children[0];
 
-  assert.deepEqual(
-    { objectFit: image.style.objectFit, objectPosition: image.style.objectPosition },
-    { objectFit: "contain", objectPosition: "center" },
+  assert.equal(catalogImage.tagName, "IMG");
+  assert.equal(catalogImage.style.objectFit, "contain");
+  assert.equal(catalogImage.style.objectPosition, "center");
+
+  assert.match(
+    css,
+    /\.featured-primary-media img\s*\{[^}]*width:\s*auto\s*!important;[^}]*height:\s*auto\s*!important;[^}]*max-width:\s*100%\s*!important;[^}]*max-height:\s*100%\s*!important;[^}]*object-fit:\s*contain\s*!important;/s,
+  );
+  assert.match(
+    css,
+    /\.featured-secondary-media img\s*\{[^}]*width:\s*auto\s*!important;[^}]*height:\s*auto\s*!important;[^}]*max-width:\s*100%\s*!important;[^}]*max-height:\s*100%\s*!important;[^}]*object-fit:\s*contain\s*!important;/s,
   );
 });
 
@@ -538,43 +546,52 @@ test("catalog cards expose a separate details action instead of a direct store l
   assert.equal(footer.children.some((node) => node.tagName === "A"), false);
 });
 
-test("responsive catalog contract keeps two phone columns, compact carousel, original logo and a product dialog", () => {
+test("responsive catalog contract keeps two phone columns, static featured showcase, original logo and a product dialog", () => {
   const css = fs.readFileSync(path.join(__dirname, "../../style.css"), "utf8");
-  const html = fs.readFileSync(path.join(__dirname, "../../catalogo.html"), "utf8");
+  const catalogHtml = fs.readFileSync(path.join(__dirname, "../../catalogo.html"), "utf8");
+  const homeHtml = fs.readFileSync(path.join(__dirname, "../../index.html"), "utf8");
 
   assert.match(css, /Responsive catalog, compact carousel and product details/);
-  assert.match(css, /\.product-grid\s*\{\s*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
-  assert.match(css, /\.carousel-slide \.product-image-wrap\s*\{[^}]*aspect-ratio:\s*16\s*\/\s*10/s);
+  assert.match(
+    css,
+    /\.product-grid\s*\{\s*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/,
+  );
   assert.match(css, /\.brand-logo\s*\{[^}]*color-scheme:\s*only light/s);
   assert.match(css, /\.product-dialog\s*\{/);
 
-  assert.match(html, /<dialog class="product-dialog" id="product-dialog"/);
-  assert.match(html, /id="product-dialog-description"/);
-  assert.match(html, /id="product-dialog-image"/);
-  assert.match(html, /id="product-dialog-offer"/);
+  assert.match(homeHtml, /id="featured-showcase"/);
+  assert.match(homeHtml, /id="featured-primary"/);
+  assert.match(homeHtml, /id="featured-secondary"/);
+  assert.doesNotMatch(homeHtml, /id="featured-carousel"/);
+
+  assert.match(catalogHtml, /<dialog class="product-dialog" id="product-dialog"/);
+  assert.match(catalogHtml, /id="product-dialog-description"/);
+  assert.match(catalogHtml, /id="product-dialog-image"/);
+  assert.match(catalogHtml, /id="product-dialog-offer"/);
 });
 
-
-test("image polish keeps featured and detail images fully visible and details CTA branded", () => {
+test("image polish keeps featured showcase and detail images fully visible and details CTA branded", () => {
   const css = fs.readFileSync(path.join(__dirname, "../../style.css"), "utf8");
 
   assert.match(css, /Product image polish: full visibility and branded details CTA/);
+  assert.match(css, /Static featured showcase: complete product images/);
 
   assert.match(
     css,
-    /\.carousel-slide \.product-image-wrap img\s*\{[^}]*width:\s*auto[^}]*height:\s*auto[^}]*max-width:\s*100%[^}]*max-height:\s*100%[^}]*object-fit:\s*contain\s*!important/s,
+    /\.featured-primary-media img\s*\{[^}]*width:\s*auto\s*!important;[^}]*height:\s*auto\s*!important;[^}]*max-width:\s*100%\s*!important;[^}]*max-height:\s*100%\s*!important;[^}]*object-fit:\s*contain\s*!important;/s,
   );
-
+  assert.match(
+    css,
+    /\.featured-secondary-media img\s*\{[^}]*width:\s*auto\s*!important;[^}]*height:\s*auto\s*!important;[^}]*max-width:\s*100%\s*!important;[^}]*max-height:\s*100%\s*!important;[^}]*object-fit:\s*contain\s*!important;/s,
+  );
   assert.match(
     css,
     /\.product-dialog-image-wrap img\s*\{[^}]*width:\s*auto[^}]*height:\s*auto[^}]*max-width:\s*100%[^}]*max-height:\s*100%[^}]*object-fit:\s*contain\s*!important/s,
   );
-
   assert.match(
     css,
     /\.product-details-button\s*\{[^}]*background:\s*var\(--brand\)[^}]*color:\s*#fff/s,
   );
-
   assert.match(
     css,
     /\.product-details-button:hover\s*\{[^}]*background:\s*var\(--brand-strong\)/s,
@@ -626,5 +643,35 @@ test("home categories use a compact two-column phone layout with a very-narrow f
   assert.match(
     css,
     /@media \(min-width:\s*72rem\)\s*\{[\s\S]*?\.category-list\s*\{\s*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\);/,
+  );
+});
+
+test("home featured products use a static showcase with complete images and no carousel runtime", () => {
+  const html = fs.readFileSync(path.join(__dirname, "../../index.html"), "utf8");
+  const script = fs.readFileSync(path.join(__dirname, "../../script.js"), "utf8");
+  const css = fs.readFileSync(path.join(__dirname, "../../style.css"), "utf8");
+
+  assert.match(html, /id="featured-showcase"/);
+  assert.match(html, /id="featured-primary"/);
+  assert.match(html, /id="featured-secondary"/);
+  assert.match(html, /<dialog class="product-dialog" id="product-dialog"/);
+  assert.doesNotMatch(html, /id="featured-carousel"/);
+  assert.doesNotMatch(html, /id="carousel-track"/);
+  assert.doesNotMatch(html, /id="carousel-controls"/);
+
+  assert.match(script, /function createFeaturedPrimaryCard/);
+  assert.match(script, /function createFeaturedSecondaryCard/);
+  assert.match(script, /featured\.slice\(0,\s*5\)/);
+  assert.doesNotMatch(script, /function createCarousel/);
+  assert.doesNotMatch(script, /carouselController/);
+
+  assert.match(css, /Static featured showcase: complete product images/);
+  assert.match(
+    css,
+    /\.featured-primary-media img\s*\{[^}]*width:\s*auto\s*!important;[^}]*height:\s*auto\s*!important;[^}]*max-width:\s*100%\s*!important;[^}]*max-height:\s*100%\s*!important;[^}]*object-fit:\s*contain\s*!important;/s,
+  );
+  assert.match(
+    css,
+    /\.featured-secondary-media img\s*\{[^}]*width:\s*auto\s*!important;[^}]*height:\s*auto\s*!important;[^}]*max-width:\s*100%\s*!important;[^}]*max-height:\s*100%\s*!important;[^}]*object-fit:\s*contain\s*!important;/s,
   );
 });

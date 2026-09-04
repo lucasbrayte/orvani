@@ -145,21 +145,17 @@
         </div>
 
         <div
-          class="carousel reveal"
-          id="featured-carousel"
+          class="featured-showcase reveal"
+          id="featured-showcase"
           role="region"
-          aria-roledescription="carrossel"
           aria-label="Produtos em destaque"
         >
-          <div class="carousel-viewport" id="carousel-viewport">
-            <div class="carousel-track" id="carousel-track"></div>
-          </div>
-          <div class="carousel-controls" id="carousel-controls">
-            <button class="icon-button" id="carousel-prev" type="button" aria-label="Destaque anterior">←</button>
-            <div class="carousel-indicators" id="carousel-indicators" aria-label="Escolher destaque"></div>
-            <button class="icon-button" id="carousel-next" type="button" aria-label="Próximo destaque">→</button>
-          </div>
-          <p class="visually-hidden" id="carousel-live" aria-live="polite" aria-atomic="true"></p>
+          <div class="featured-primary" id="featured-primary"></div>
+          <div
+            class="featured-secondary-grid"
+            id="featured-secondary"
+            aria-label="Outros destaques"
+          ></div>
         </div>
       </section>
 
@@ -289,6 +285,51 @@
         </div>
       </div>
     </footer>
+
+    <dialog class="product-dialog" id="product-dialog" aria-labelledby="product-dialog-title">
+      <div class="product-dialog-shell">
+        <button class="product-dialog-close" type="button" aria-label="Fechar detalhes do produto">×</button>
+
+        <div class="product-dialog-media">
+          <div class="product-dialog-image-wrap">
+            <img
+              id="product-dialog-image"
+              src="orvani-favicon.png"
+              width="960"
+              height="720"
+              alt=""
+              decoding="async"
+            >
+          </div>
+          <div
+            class="product-dialog-thumbnails"
+            id="product-dialog-thumbnails"
+            aria-label="Imagens do produto"
+            hidden
+          ></div>
+        </div>
+
+        <div class="product-dialog-content">
+          <div class="product-dialog-meta">
+            <span id="product-dialog-category"></span>
+            <span class="type-label" id="product-dialog-type"></span>
+            <span class="partner-label" id="product-dialog-partner"></span>
+            <span class="product-dialog-subcategory" id="product-dialog-subcategory" hidden></span>
+          </div>
+
+          <h2 id="product-dialog-title"></h2>
+          <p class="product-dialog-description" id="product-dialog-description"></p>
+
+          <div class="product-dialog-coupon" id="product-dialog-coupon"></div>
+          <div class="product-dialog-price" id="product-dialog-price"></div>
+          <div class="product-dialog-offer" id="product-dialog-offer"></div>
+
+          <p class="product-dialog-note">
+            A compra, o pagamento e a entrega acontecem diretamente na loja parceira.
+          </p>
+        </div>
+      </div>
+    </dialog>
 
     <dialog class="institutional-dialog" id="about-dialog" aria-labelledby="about-title">
       <div class="dialog-shell">
