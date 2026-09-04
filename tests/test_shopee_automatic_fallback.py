@@ -67,15 +67,47 @@ def test_shopee_invalid_public_metadata_falls_back_to_calc_data():
     assert values[14] == record.image_1
 
 
-def test_shopee_fallback_stays_error_when_required_calc_data_is_missing():
+def test_shopee_fallback_fills_optional_catalog_text():
     engine = SyncEngine(object(), object())
-    record = _record(name="")
+    record = _record(
+        name="",
+        description="",
+        category="",
+        subcategory="",
+        product_type="",
+        button_text="",
+    )
     item, _changes, publication = engine._plan_record(
         record, InvalidProductDataError("metadados públicos insuficientes"), (), NOW
     )
-    assert item.final_status is ImportStatus.ERRO
-    assert item.product_changed is False
-    assert publication == ()
+
+    assert item.final_status is ImportStatus.PUBLICADO
+    assert len(publication) == 1
+    values = publication[0].values[0]
+    assert values[1] == "Físico"
+    assert values[3] == "Outros"
+    assert values[4] == "Geral"
+    assert values[5] == "Produto Shopee"
+    assert values[6] == "Oferta disponível na Shopee."
+    assert values[12] == "Ver oferta na Shopee"
+
+
+def test_shopee_fallback_still_requires_price_and_image():
+    engine = SyncEngine(object(), object())
+
+    for record in (
+        _record(current_price=None),
+        _record(image_1=""),
+    ):
+        item, _changes, publication = engine._plan_record(
+            record,
+            InvalidProductDataError("metadados públicos insuficientes"),
+            (),
+            NOW,
+        )
+        assert item.final_status is ImportStatus.ERRO
+        assert item.product_changed is False
+        assert publication == ()
 
 
 def test_shopee_fallback_uses_automation_id_when_public_identity_is_missing():

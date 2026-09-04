@@ -980,6 +980,38 @@ def _manual_coupon_expiry(value: str) -> datetime | None:
     raise InvalidProductDataError("A validade manual do cupom é inválida.")
 
 
+def _fallback_catalog_record(
+    record: ImportRecord,
+    partner: str,
+) -> ImportRecord:
+    defaults = {
+        "shopee": (
+            "Produto Shopee",
+            "Oferta disponível na Shopee.",
+        ),
+        "mercado_livre": (
+            "Produto Mercado Livre",
+            "Oferta disponível no Mercado Livre.",
+        ),
+        "shein": (
+            "Produto SHEIN",
+            "Oferta disponível na SHEIN.",
+        ),
+    }
+    default_name, default_description = defaults.get(
+        partner,
+        ("Produto", "Confira esta oferta."),
+    )
+    return replace(
+        record,
+        name=_text_or_blank(record.name) or default_name,
+        description=_text_or_blank(record.description) or default_description,
+        category=_text_or_blank(record.category) or "Outros",
+        subcategory=_text_or_blank(record.subcategory) or "Geral",
+        product_type=_text_or_blank(record.product_type) or "Físico",
+    )
+
+
 def _manual_import_snapshot(
     record: ImportRecord,
     fetched_at: datetime,
@@ -993,6 +1025,9 @@ def _manual_import_snapshot(
     partner = _canonical_partner_key(record.partner)
     if not partner or partner not in PARTNERS:
         raise InvalidProductDataError("A plataforma manual é inválida.")
+
+    if partner == "shopee":
+        record = _fallback_catalog_record(record, partner)
 
     source_url = record.product_url.strip()
     affiliate_url = record.affiliate_url.strip()
@@ -1070,6 +1105,8 @@ def _manual_mercado_livre_snapshot(
         or _canonical_partner_key(record.partner) != "mercado_livre"
     ):
         raise InvalidProductDataError("O fallback manual do Mercado Livre é inválido.")
+
+    record = _fallback_catalog_record(record, "mercado_livre")
 
     source_url = record.product_url.strip()
     if _normalized_partner_link_or_none(source_url, "mercado_livre") is None:
@@ -1160,6 +1197,8 @@ def _manual_shein_snapshot(record: ImportRecord, fetched_at: datetime) -> Produc
     """Build a safe SHEIN snapshot from manually reviewed Importações fields."""
     if not isinstance(record, ImportRecord) or _canonical_partner_key(record.partner) != "shein":
         raise InvalidProductDataError("O fallback manual da SHEIN é inválido.")
+
+    record = _fallback_catalog_record(record, "shein")
 
     affiliate_url = record.affiliate_url.strip()
     if _normalized_partner_link_or_none(affiliate_url, "shein") is None:

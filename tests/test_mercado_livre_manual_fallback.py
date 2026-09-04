@@ -98,6 +98,35 @@ def test_mercado_livre_invalid_public_metadata_falls_back_to_manual_import_data(
     assert values[14] == record.image_1
 
 
+def test_mercado_livre_fallback_fills_optional_catalog_text():
+    engine = SyncEngine(object(), object())
+    record = _record(
+        name="",
+        description="",
+        category="",
+        subcategory="",
+        product_type="",
+        button_text="",
+    )
+
+    item, _changes, publication = engine._plan_record(
+        record,
+        InvalidProductDataError("metadados públicos insuficientes"),
+        (),
+        NOW,
+    )
+
+    assert item.final_status is ImportStatus.PUBLICADO
+    assert len(publication) == 1
+    values = publication[0].values[0]
+    assert values[1] == "Físico"
+    assert values[3] == "Outros"
+    assert values[4] == "Geral"
+    assert values[5] == "Produto Mercado Livre"
+    assert values[6] == "Oferta disponível no Mercado Livre."
+    assert values[12] == "Ver oferta na Mercado Livre"
+
+
 def test_mercado_livre_manual_fallback_requires_trusted_offer_identity():
     engine = SyncEngine(object(), object())
     record = _record(

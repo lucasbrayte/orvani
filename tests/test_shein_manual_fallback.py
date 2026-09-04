@@ -94,6 +94,35 @@ def test_shein_invalid_public_metadata_falls_back_to_manual_import_data():
     assert values[14] == record.image_1
 
 
+def test_shein_fallback_fills_optional_catalog_text():
+    engine = SyncEngine(object(), object())
+    record = _record(
+        name="",
+        description="",
+        category="",
+        subcategory="",
+        product_type="",
+        button_text="",
+    )
+
+    item, _changes, publication = engine._plan_record(
+        record,
+        InvalidProductDataError("metadados públicos insuficientes"),
+        (),
+        NOW,
+    )
+
+    assert item.final_status is ImportStatus.PUBLICADO
+    assert len(publication) == 1
+    values = publication[0].values[0]
+    assert values[1] == "Físico"
+    assert values[3] == "Outros"
+    assert values[4] == "Geral"
+    assert values[5] == "Produto SHEIN"
+    assert values[6] == "Oferta disponível na SHEIN."
+    assert values[12] == "Ver oferta na SHEIN"
+
+
 def test_shein_manual_fallback_keeps_error_when_required_data_is_missing():
     engine = SyncEngine(object(), object())
     record = _record(current_price=None)
@@ -117,6 +146,6 @@ def test_pending_retries_persisted_shein_error_when_manual_fallback_is_ready():
 
 
 def test_pending_does_not_loop_incomplete_persisted_shein_error():
-    record = _persisted_invalid_data_error(_record(name=""))
+    record = _persisted_invalid_data_error(_record(image_1=""))
 
     assert _is_selected(record, "pending", NOW) is False
