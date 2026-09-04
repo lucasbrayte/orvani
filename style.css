@@ -2614,3 +2614,82 @@ main {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
+/* ========================================================================== */
+/* Product image polish: full visibility and branded details CTA              */
+/* ========================================================================== */
+
+/*
+ * O carrossel continua como uma vitrine de destaques, mas a área visual passa
+ * a funcionar como um "palco" de produto: a imagem nunca é ampliada para
+ * preencher/cortar o quadro e ganha respiro em volta.
+ */
+.carousel-slide .product-image-wrap {
+  height: clamp(14rem, 60vw, 18rem);
+  aspect-ratio: auto;
+  padding: clamp(0.8rem, 3vw, 1.35rem);
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 42%, #fff 0 48%, rgba(238, 237, 255, 0.72) 100%),
+    var(--surface);
+}
+
+.carousel-slide .product-image-wrap img {
+  width: auto !important;
+  height: auto !important;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain !important;
+  object-position: center !important;
+}
+
+/* O CTA de detalhes usa a cor principal da identidade Orvani. */
+.product-details-button {
+  border-color: transparent;
+  background: var(--brand);
+  box-shadow: 0 8px 20px rgba(99, 91, 255, 0.22);
+  color: #fff;
+}
+
+.product-details-button:hover {
+  border-color: transparent;
+  background: var(--brand-strong);
+  box-shadow: 0 11px 24px rgba(99, 91, 255, 0.3);
+  color: #fff;
+}
+
+/*
+ * A galeria do modal também usa contain real com dimensões intrínsecas.
+ * Isso evita que fotos verticais, quadradas ou panorâmicas sejam cortadas.
+ */
+.product-dialog-image-wrap {
+  height: min(46dvh, 22rem);
+  min-height: 15rem;
+  aspect-ratio: auto;
+  padding: clamp(0.75rem, 3vw, 1.25rem);
+  overflow: hidden;
+}
+
+.product-dialog-image-wrap img {
+  width: auto !important;
+  height: auto !important;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain !important;
+  object-position: center !important;
+}
+
+@media (min-width: 48rem) {
+  .product-dialog-image-wrap {
+    height: min(62dvh, 32rem);
+    min-height: 20rem;
+  }
+}
+
+@media (min-width: 64rem) {
+  .carousel-slide .product-image-wrap {
+    height: 18.5rem;
+    max-height: none;
+    aspect-ratio: auto;
+    padding: 1.35rem 1.6rem;
+  }
+}

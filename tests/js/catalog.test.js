@@ -553,3 +553,30 @@ test("responsive catalog contract keeps two phone columns, compact carousel, ori
   assert.match(html, /id="product-dialog-image"/);
   assert.match(html, /id="product-dialog-offer"/);
 });
+
+
+test("image polish keeps featured and detail images fully visible and details CTA branded", () => {
+  const css = fs.readFileSync(path.join(__dirname, "../../style.css"), "utf8");
+
+  assert.match(css, /Product image polish: full visibility and branded details CTA/);
+
+  assert.match(
+    css,
+    /\.carousel-slide \.product-image-wrap img\s*\{[^}]*width:\s*auto[^}]*height:\s*auto[^}]*max-width:\s*100%[^}]*max-height:\s*100%[^}]*object-fit:\s*contain\s*!important/s,
+  );
+
+  assert.match(
+    css,
+    /\.product-dialog-image-wrap img\s*\{[^}]*width:\s*auto[^}]*height:\s*auto[^}]*max-width:\s*100%[^}]*max-height:\s*100%[^}]*object-fit:\s*contain\s*!important/s,
+  );
+
+  assert.match(
+    css,
+    /\.product-details-button\s*\{[^}]*background:\s*var\(--brand\)[^}]*color:\s*#fff/s,
+  );
+
+  assert.match(
+    css,
+    /\.product-details-button:hover\s*\{[^}]*background:\s*var\(--brand-strong\)/s,
+  );
+});
