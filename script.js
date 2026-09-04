@@ -667,6 +667,23 @@ const CONFIG = {
     return type === "digital" ? "Digital" : "Físico";
   }
 
+  function productDetailsPresentation(product) {
+    const primaryImage = compactText(product?.primaryImage);
+    const extraImages = Array.isArray(product?.images) ? product.images : [];
+    const images = [primaryImage, ...extraImages.map((value) => compactText(value))]
+      .filter((value, index, values) => value && values.indexOf(value) === index);
+
+    return Object.freeze({
+      title: compactText(product?.name),
+      description: compactText(product?.description) || compactText(product?.shortDescription),
+      category: compactText(product?.category),
+      subcategory: compactText(product?.subcategory),
+      type: typeLabel(product?.type),
+      partner: partnerLabel(product?.partner),
+      images: Object.freeze(images),
+    });
+  }
+
   function filterProducts(products, filters = {}) {
     const queryTokens = searchable(filters.query).split(" ").filter(Boolean);
     const category = searchable(filters.category);
@@ -749,6 +766,7 @@ const CONFIG = {
     filterProducts,
     partnerLabel,
     typeLabel,
+    productDetailsPresentation,
     categorySlug,
     categoryIconClass,
     readCatalogFilters,
@@ -839,6 +857,112 @@ const CONFIG = {
       return container;
     }
 
+    let productDialogOpener = null;
+
+    function openProductDetails(product, opener = null) {
+      const dialog = document.querySelector("#product-dialog");
+      if (!dialog || typeof dialog.showModal !== "function") return;
+
+      const details = productDetailsPresentation(product);
+      const title = document.querySelector("#product-dialog-title");
+      const description = document.querySelector("#product-dialog-description");
+      const category = document.querySelector("#product-dialog-category");
+      const type = document.querySelector("#product-dialog-type");
+      const partner = document.querySelector("#product-dialog-partner");
+      const subcategory = document.querySelector("#product-dialog-subcategory");
+      const mainImage = document.querySelector("#product-dialog-image");
+      const thumbnails = document.querySelector("#product-dialog-thumbnails");
+      const priceHost = document.querySelector("#product-dialog-price");
+      const couponHost = document.querySelector("#product-dialog-coupon");
+      const offerHost = document.querySelector("#product-dialog-offer");
+      const closeButton = dialog.querySelector(".product-dialog-close");
+
+      if (
+        !title || !description || !category || !type || !partner ||
+        !subcategory || !mainImage || !thumbnails || !priceHost ||
+        !couponHost || !offerHost
+      ) return;
+
+      setNodeText(title, details.title);
+      setNodeText(description, details.description);
+      setNodeText(category, details.category);
+      setNodeText(type, details.type);
+      setNodeText(partner, details.partner);
+
+      if (details.subcategory) {
+        setNodeText(subcategory, details.subcategory);
+        subcategory.hidden = false;
+      } else {
+        setNodeText(subcategory, "");
+        subcategory.hidden = true;
+      }
+
+      const images = details.images.length > 0 ? details.images : [fallbackImage];
+      mainImage.src = images[0];
+      mainImage.alt = details.title;
+      mainImage.onerror = () => {
+        mainImage.onerror = null;
+        mainImage.src = fallbackImage;
+      };
+
+      const thumbnailButtons = images.map((source, index) => {
+        const button = element("button", "product-dialog-thumbnail");
+        button.type = "button";
+        button.setAttribute("aria-label", `Ver imagem ${index + 1} de ${details.title}`);
+        button.setAttribute("aria-pressed", String(index === 0));
+
+        const image = document.createElement("img");
+        image.src = source;
+        image.alt = "";
+        image.width = 96;
+        image.height = 96;
+        image.loading = "lazy";
+        image.decoding = "async";
+        image.addEventListener("error", () => {
+          if (image.src !== fallbackImage) image.src = fallbackImage;
+        }, { once: true });
+
+        button.append(image);
+        button.addEventListener("click", () => {
+          mainImage.src = source;
+          thumbnails.querySelectorAll(".product-dialog-thumbnail").forEach((item) => {
+            item.setAttribute("aria-pressed", String(item === button));
+          });
+        });
+        return button;
+      });
+      thumbnails.replaceChildren(...thumbnailButtons);
+      thumbnails.hidden = thumbnailButtons.length <= 1;
+
+      const view = offerPresentation(product);
+      priceHost.replaceChildren(priceBlock(product, view));
+      const coupon = couponBlock(view);
+      couponHost.replaceChildren(...(coupon ? [coupon] : []));
+      offerHost.replaceChildren(
+        offerLink(product, "button button-primary offer-link product-dialog-offer-link"),
+      );
+
+      productDialogOpener = opener;
+      dialog.showModal();
+      closeButton?.focus?.();
+    }
+
+    function setupProductDialog() {
+      const dialog = document.querySelector("#product-dialog");
+      if (!dialog || typeof dialog.close !== "function") return;
+
+      dialog.querySelector(".product-dialog-close")?.addEventListener("click", () => {
+        dialog.close();
+      });
+      dialog.addEventListener("click", (event) => {
+        if (event.target === dialog) dialog.close();
+      });
+      dialog.addEventListener("close", () => {
+        productDialogOpener?.focus?.();
+        productDialogOpener = null;
+      });
+    }
+
     function createProductCard(product, index) {
       const card = element("article", "product-card reveal");
       card.dataset.productId = product.id;
@@ -855,7 +979,16 @@ const CONFIG = {
       const description = element("p", "product-description", product.shortDescription);
       const footer = element("div", "product-card-footer");
       const view = offerPresentation(product);
-      footer.append(priceBlock(product, view), offerLink(product));
+      footer.append(priceBlock(product, view));
+      const detailsButton = element(
+        "button",
+        "button button-secondary product-details-button",
+        "Ver detalhes",
+      );
+      detailsButton.type = "button";
+      detailsButton.setAttribute("aria-label", `Ver detalhes de ${product.name}`);
+      detailsButton.addEventListener("click", () => openProductDetails(product, detailsButton));
+      footer.append(detailsButton);
       const coupon = couponBlock(view);
       body.append(meta, title, description);
       if (coupon) body.append(coupon);
@@ -1490,6 +1623,7 @@ const CONFIG = {
       bindCatalogLoading();
       setupMobileMenu();
       setupInstitutionalFooter();
+      setupProductDialog();
       setupRevealObserver();
     }
 
@@ -1510,6 +1644,8 @@ const CONFIG = {
     }
 
     globalThis.OrvaniApp = Object.freeze({
+      createProductCard,
+      openProductDetails,
       loadCatalog,
       setProducts,
       renderFilteredProducts,

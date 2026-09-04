@@ -197,6 +197,51 @@
       </div>
     </footer>
 
+    <dialog class="product-dialog" id="product-dialog" aria-labelledby="product-dialog-title">
+      <div class="product-dialog-shell">
+        <button class="product-dialog-close" type="button" aria-label="Fechar detalhes do produto">×</button>
+
+        <div class="product-dialog-media">
+          <div class="product-dialog-image-wrap">
+            <img
+              id="product-dialog-image"
+              src="orvani-favicon.png"
+              width="960"
+              height="720"
+              alt=""
+              decoding="async"
+            >
+          </div>
+          <div
+            class="product-dialog-thumbnails"
+            id="product-dialog-thumbnails"
+            aria-label="Imagens do produto"
+            hidden
+          ></div>
+        </div>
+
+        <div class="product-dialog-content">
+          <div class="product-dialog-meta">
+            <span id="product-dialog-category"></span>
+            <span class="type-label" id="product-dialog-type"></span>
+            <span class="partner-label" id="product-dialog-partner"></span>
+            <span class="product-dialog-subcategory" id="product-dialog-subcategory" hidden></span>
+          </div>
+
+          <h2 id="product-dialog-title"></h2>
+          <p class="product-dialog-description" id="product-dialog-description"></p>
+
+          <div class="product-dialog-coupon" id="product-dialog-coupon"></div>
+          <div class="product-dialog-price" id="product-dialog-price"></div>
+          <div class="product-dialog-offer" id="product-dialog-offer"></div>
+
+          <p class="product-dialog-note">
+            A compra, o pagamento e a entrega acontecem diretamente na loja parceira.
+          </p>
+        </div>
+      </div>
+    </dialog>
+
     <dialog class="institutional-dialog" id="about-dialog" aria-labelledby="about-title">
       <div class="dialog-shell">
         <div class="dialog-heading"><p class="eyebrow">Institucional</p><button class="dialog-close" type="button" aria-label="Fechar diálogo">×</button></div>

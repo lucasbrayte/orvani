@@ -491,3 +491,65 @@ test("falls back to a bounded ID for adversarially long stable-path tokens", () 
   assert.equal(result, fallback);
   assert.equal(result.length, fallback.length);
 });
+
+
+test("product detail presentation prefers the full description and unique images", () => {
+  assert.equal(typeof core.productDetailsPresentation, "function");
+
+  const product = {
+    ...core.DEMO_PRODUCTS[0],
+    shortDescription: "Resumo curto.",
+    description: "Descrição completa do produto sem qualquer corte.",
+    primaryImage: "https://images.example/primary.jpg",
+    images: Object.freeze([
+      "https://images.example/second.jpg",
+      "https://images.example/primary.jpg",
+    ]),
+    subcategory: "Liquidificadores",
+  };
+
+  const details = core.productDetailsPresentation(product);
+
+  assert.equal(details.description, "Descrição completa do produto sem qualquer corte.");
+  assert.equal(details.category, product.category);
+  assert.equal(details.subcategory, "Liquidificadores");
+  assert.equal(details.partner, "Amazon");
+  assert.deepEqual(
+    [...details.images],
+    [
+      "https://images.example/primary.jpg",
+      "https://images.example/second.jpg",
+    ],
+  );
+});
+
+test("catalog cards expose a separate details action instead of a direct store link", () => {
+  const { app, core: browserCore } = loadBrowserApp();
+  assert.equal(typeof app.createProductCard, "function");
+
+  const card = app.createProductCard(browserCore.DEMO_PRODUCTS[0], 0);
+  const body = card.children[1];
+  const footer = body.children[body.children.length - 1];
+  const detailsButton = footer.children[footer.children.length - 1];
+
+  assert.equal(detailsButton.tagName, "BUTTON");
+  assert.equal(detailsButton.className.includes("product-details-button"), true);
+  assert.equal(detailsButton.textContent, "Ver detalhes");
+  assert.equal(footer.children.some((node) => node.tagName === "A"), false);
+});
+
+test("responsive catalog contract keeps two phone columns, compact carousel, original logo and a product dialog", () => {
+  const css = fs.readFileSync(path.join(__dirname, "../../style.css"), "utf8");
+  const html = fs.readFileSync(path.join(__dirname, "../../catalogo.html"), "utf8");
+
+  assert.match(css, /Responsive catalog, compact carousel and product details/);
+  assert.match(css, /\.product-grid\s*\{\s*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
+  assert.match(css, /\.carousel-slide \.product-image-wrap\s*\{[^}]*aspect-ratio:\s*16\s*\/\s*10/s);
+  assert.match(css, /\.brand-logo\s*\{[^}]*color-scheme:\s*only light/s);
+  assert.match(css, /\.product-dialog\s*\{/);
+
+  assert.match(html, /<dialog class="product-dialog" id="product-dialog"/);
+  assert.match(html, /id="product-dialog-description"/);
+  assert.match(html, /id="product-dialog-image"/);
+  assert.match(html, /id="product-dialog-offer"/);
+});
