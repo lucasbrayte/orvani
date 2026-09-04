@@ -770,6 +770,7 @@ const CONFIG = {
     "mercado_livre",
     "shein",
     "shopee",
+    "amazon",
   ]);
 
   function footerPartnerLabels() {

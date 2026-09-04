@@ -850,6 +850,17 @@ class SyncEngine:
             else:
                 outcome = manual_snapshot
                 manual_fallback_label = "Shopee"
+        if (
+            isinstance(outcome, (UnsupportedUrlError, InvalidProductDataError))
+            and _canonical_partner_key(record.partner) == "amazon"
+        ):
+            try:
+                manual_snapshot = _manual_amazon_snapshot(record, now)
+            except InvalidProductDataError:
+                pass
+            else:
+                outcome = manual_snapshot
+                manual_fallback_label = "Amazon"
         if isinstance(outcome, (UnsupportedUrlError, InvalidProductDataError)):
             category = "unsupported_url" if isinstance(outcome, UnsupportedUrlError) else "invalid_product_data"
             error_hash = _permanent_error_hash(category)
@@ -903,9 +914,13 @@ class SyncEngine:
                 target = replace(target, status=ImportStatus.ATENCAO, message="Dados de publicação exigem revisão.")
             else:
                 publication_message = (
-                    f"Produto publicado via fallback manual do {manual_fallback_label}."
-                    if manual_fallback_label
-                    else "Produto publicado."
+                    "Produto publicado via fallback manual da Amazon."
+                    if manual_fallback_label == "Amazon"
+                    else (
+                        f"Produto publicado via fallback manual do {manual_fallback_label}."
+                        if manual_fallback_label
+                        else "Produto publicado."
+                    )
                 )
                 target = replace(
                     target,
@@ -1094,6 +1109,120 @@ def _manual_import_snapshot(
         available=None,
         fetched_at=_utc_now(fetched_at),
     )
+
+
+def _extract_amazon_asin(value: Any) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = urlsplit(value.strip())
+    except ValueError:
+        return None
+    if parsed.scheme.casefold() != "https":
+        return None
+    host = (parsed.hostname or "").lower().rstrip(".")
+    if not (host == "amazon.com.br" or host.endswith(".amazon.com.br")):
+        return None
+
+    parts = tuple(part for part in parsed.path.split("/") if part)
+    candidate: str | None = None
+    for index, part in enumerate(parts):
+        token = part.casefold()
+        if token == "dp" and index + 1 < len(parts):
+            candidate = parts[index + 1]
+            break
+        if (
+            token == "product"
+            and index >= 1
+            and parts[index - 1].casefold() == "gp"
+            and index + 1 < len(parts)
+        ):
+            candidate = parts[index + 1]
+            break
+        if (
+            token == "d"
+            and index >= 2
+            and parts[index - 2].casefold() == "gp"
+            and parts[index - 1].casefold() == "aw"
+            and index + 1 < len(parts)
+        ):
+            candidate = parts[index + 1]
+            break
+
+    if candidate is None or re.fullmatch(r"[A-Za-z0-9]{10}", candidate, flags=re.ASCII) is None:
+        return None
+    return candidate.upper()
+
+
+def _manual_amazon_snapshot(
+    record: ImportRecord,
+    fetched_at: datetime,
+) -> ProductSnapshot:
+    if (
+        not isinstance(record, ImportRecord)
+        or _canonical_partner_key(record.partner) != "amazon"
+    ):
+        raise InvalidProductDataError("O fallback manual da Amazon é inválido.")
+
+    source_url = record.product_url.strip()
+    affiliate_url = record.affiliate_url.strip()
+    if _normalized_partner_link_or_none(source_url, "amazon") is None:
+        raise InvalidProductDataError("O Link Produto da Amazon é inválido.")
+    asin = _extract_amazon_asin(source_url)
+    if asin is None:
+        raise InvalidProductDataError("O Link Produto da Amazon não contém ASIN seguro.")
+    if _normalized_partner_link_or_none(affiliate_url, "amazon") is None:
+        raise InvalidProductDataError("O Link Afiliado da Amazon é inválido.")
+
+    name = _text_or_blank(record.name)
+    if not name:
+        raise InvalidProductDataError("O fallback manual da Amazon exige Nome.")
+
+    if record.current_price is None:
+        raise InvalidProductDataError("O preço atual da Amazon está ausente.")
+    _valid_price(record.current_price)
+    if record.previous_price is not None:
+        _valid_price(record.previous_price)
+        if record.previous_price <= record.current_price:
+            raise InvalidProductDataError("A promoção manual da Amazon é inválida.")
+
+    images = tuple(
+        _unique_normalized_images(
+            (record.image_1, record.image_2, record.image_3, record.image_4)
+        )
+    )
+    if not images:
+        raise InvalidProductDataError("O fallback manual da Amazon exige uma imagem HTTPS.")
+
+    coupon = record.coupon.strip() or None
+    return ProductSnapshot(
+        partner="amazon",
+        external_id=asin,
+        catalog_id=None,
+        source_url=source_url,
+        affiliate_url=affiliate_url,
+        name=name,
+        description=_text_or_blank(record.description) or "Oferta disponível na Amazon.",
+        current_price=record.current_price,
+        previous_price=record.previous_price,
+        currency=CATALOG_CURRENCY,
+        category=_text_or_blank(record.category) or "Outros",
+        subcategory=_text_or_blank(record.subcategory) or "Geral",
+        product_type=_text_or_blank(record.product_type) or "Físico",
+        coupon=coupon,
+        coupon_expires_at=None,
+        images=images,
+        available=None,
+        fetched_at=_utc_now(fetched_at),
+    )
+
+
+def _manual_amazon_fallback_ready(record: ImportRecord) -> bool:
+    try:
+        _manual_amazon_snapshot(record, datetime(1970, 1, 1, tzinfo=UTC))
+    except InvalidProductDataError:
+        return False
+    return True
 
 
 def _manual_mercado_livre_snapshot(
@@ -1310,6 +1439,11 @@ def _is_selected(record: ImportRecord, mode: str, now: datetime) -> bool:
         if (
             partner_key == "shopee"
             and _manual_shopee_fallback_ready(record)
+        ):
+            return True
+        if (
+            _canonical_partner_key(record.partner) == "amazon"
+            and _manual_amazon_fallback_ready(record)
         ):
             return True
         old_link, old_data = _signature_parts(record.data_signature)

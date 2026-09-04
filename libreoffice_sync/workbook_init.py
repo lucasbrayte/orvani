@@ -108,7 +108,7 @@ def configure_catalog_sheet(sheet) -> None:
         )
         _list_validation(
             sheet.getCellRangeByPosition(7, 1, 7, 1999),
-            ("Mercado Livre", "Shopee", "SHEIN"),
+            ("Mercado Livre", "Shopee", "SHEIN", "Amazon"),
         )
         _list_validation(
             sheet.getCellRangeByPosition(12, 1, 12, 1999),

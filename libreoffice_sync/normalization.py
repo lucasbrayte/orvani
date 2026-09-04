@@ -52,6 +52,11 @@ def infer_partner(*urls: str) -> str:
             return "Shopee"
         if _host_matches(host, "shein.com"):
             return "SHEIN"
+        if (
+                _host_matches(host, "amazon.com.br")
+                or _host_matches(host, "amzn.to")
+        ):
+            return "Amazon"
     return ""
 
 
@@ -70,6 +75,7 @@ def normalize_catalog_row(row: CatalogRow) -> CatalogRow:
         "mercadolivre": "Mercado Livre",
         "shopee": "Shopee",
         "shein": "SHEIN",
+        "amazon": "Amazon",
     }
     product_types = {
         "fisico": "Físico",
@@ -77,7 +83,7 @@ def normalize_catalog_row(row: CatalogRow) -> CatalogRow:
     }
 
     partner = _canonical(row.partner, partners)
-    allowed_partners = {"Mercado Livre", "Shopee", "SHEIN"}
+    allowed_partners = {"Mercado Livre", "Shopee", "SHEIN", "Amazon"}
     if partner not in allowed_partners:
         inferred = infer_partner(row.product_url, row.affiliate_url)
         if inferred:

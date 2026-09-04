@@ -92,6 +92,9 @@ class PartnerConfig:
 
 
 PARTNERS: Mapping[str, PartnerConfig] = {
+    "amazon": PartnerConfig(
+        "amazon", "Amazon", ("amazon.com.br", "amzn.to"), False
+    ),
     "mercado_livre": PartnerConfig(
         "mercado_livre", "Mercado Livre", ("mercadolivre.com.br", "meli.la"), True
     ),

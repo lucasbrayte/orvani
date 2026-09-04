@@ -581,7 +581,7 @@ test("footer exposes only the current public partner set without removing intern
   assert.equal(typeof core.footerPartnerLabels, "function");
   assert.deepEqual(
     [...core.footerPartnerLabels()],
-    ["Mercado Livre", "SHEIN", "Shopee"],
+    ["Mercado Livre", "SHEIN", "Shopee", "Amazon"],
   );
 
   assert.deepEqual(
@@ -741,4 +741,24 @@ test("home hero replaces Ori with a visual reel and a real catalog search", () =
 
   assert.match(html, /id="collection-carousel"/);
   assert.match(script, /function createCollectionCarousel/);
+});
+
+test("amazon is publicly exposed only after backend enablement", () => {
+  assert.deepEqual(
+    [...core.footerPartnerLabels()],
+    ["Mercado Livre", "SHEIN", "Shopee", "Amazon"],
+  );
+  assert.equal(core.CONFIG.affiliatePartners.amazon.label, "Amazon");
+  assert.deepEqual(
+    [...core.CONFIG.affiliatePartners.amazon.hosts],
+    ["amazon.com.br", "amzn.to"],
+  );
+  assert.equal(
+    core.validatePartnerUrl("https://www.amazon.com.br/dp/B0D123ABCD", "amazon"),
+    "https://www.amazon.com.br/dp/B0D123ABCD",
+  );
+  assert.equal(
+    core.validatePartnerUrl("https://amazon.com.br.evil.example/dp/B0D123ABCD", "amazon"),
+    null,
+  );
 });
