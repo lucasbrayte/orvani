@@ -580,3 +580,51 @@ test("image polish keeps featured and detail images fully visible and details CT
     /\.product-details-button:hover\s*\{[^}]*background:\s*var\(--brand-strong\)/s,
   );
 });
+
+test("footer exposes only the current public partner set without removing internal partner config", () => {
+  assert.equal(typeof core.footerPartnerLabels, "function");
+  assert.deepEqual(
+    [...core.footerPartnerLabels()],
+    ["Mercado Livre", "SHEIN", "Shopee"],
+  );
+
+  assert.deepEqual(
+    Object.keys(core.CONFIG.affiliatePartners),
+    [
+      "amazon",
+      "shopee",
+      "mercado_livre",
+      "aliexpress",
+      "shein",
+      "magalu",
+      "natura",
+      "hotmart",
+      "tiktok_shop",
+    ],
+  );
+});
+
+test("home categories use a compact two-column phone layout with a very-narrow fallback", () => {
+  const css = fs.readFileSync(path.join(__dirname, "../../style.css"), "utf8");
+
+  assert.match(
+    css,
+    /Mobile categories: two-column access and curated footer partners/,
+  );
+  assert.match(
+    css,
+    /\.category-list\s*\{\s*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/,
+  );
+  assert.match(
+    css,
+    /@media \(max-width:\s*37\.99rem\)\s*\{[\s\S]*?\.category-chip\s*\{[\s\S]*?min-height:\s*6\.6rem;[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto;/,
+  );
+  assert.match(
+    css,
+    /@media \(max-width:\s*22rem\)\s*\{[\s\S]*?\.category-list\s*\{\s*grid-template-columns:\s*minmax\(0,\s*1fr\);/,
+  );
+  assert.match(
+    css,
+    /@media \(min-width:\s*72rem\)\s*\{[\s\S]*?\.category-list\s*\{\s*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\);/,
+  );
+});

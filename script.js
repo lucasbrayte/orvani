@@ -663,6 +663,16 @@ const CONFIG = {
     return CONFIG.affiliatePartners[partnerKey]?.label ?? partnerKey;
   }
 
+  const FOOTER_PARTNER_KEYS = Object.freeze([
+    "mercado_livre",
+    "shein",
+    "shopee",
+  ]);
+
+  function footerPartnerLabels() {
+    return Object.freeze(FOOTER_PARTNER_KEYS.map((partnerKey) => partnerLabel(partnerKey)));
+  }
+
   function typeLabel(type) {
     return type === "digital" ? "Digital" : "Físico";
   }
@@ -765,6 +775,7 @@ const CONFIG = {
     offerPresentation,
     filterProducts,
     partnerLabel,
+    footerPartnerLabels,
     typeLabel,
     productDetailsPresentation,
     categorySlug,
@@ -1562,7 +1573,7 @@ const CONFIG = {
         node.textContent = year;
       });
 
-      const partnerNames = Object.values(CONFIG.affiliatePartners).map((partner) => partner.label);
+      const partnerNames = footerPartnerLabels();
       document.querySelectorAll(".partner-list").forEach((list) => {
         list.replaceChildren(...partnerNames.map((name) => element("li", "", name)));
       });

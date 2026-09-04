@@ -2693,3 +2693,83 @@ main {
     padding: 1.35rem 1.6rem;
   }
 }
+
+/* ========================================================================== */
+/* Mobile categories: two-column access and curated footer partners           */
+/* ========================================================================== */
+
+/*
+ * Categorias são navegação primária. Em celulares comuns, duas colunas
+ * reduzem a rolagem sem esconder opções atrás de carrossel ou "ver mais".
+ */
+.category-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+/*
+ * O card vira uma composição vertical compacta apenas no telefone.
+ * Isso preserva legibilidade mesmo quando cada coluna fica estreita.
+ */
+@media (max-width: 37.99rem) {
+  .categories-section {
+    padding-block: 4rem;
+  }
+
+  .category-chip {
+    min-height: 6.6rem;
+    align-content: center;
+    align-items: center;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto auto;
+    padding: 0.85rem;
+    gap: 0.3rem 0.45rem;
+  }
+
+  .category-chip-icon {
+    width: 2.2rem;
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: start;
+    border-radius: 0.7rem;
+    font-size: 1.05rem;
+  }
+
+  .category-chip-name {
+    min-width: 0;
+    align-self: start;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    overflow-wrap: anywhere;
+    font-size: 0.86rem;
+    line-height: 1.2;
+  }
+
+  .category-chip-count {
+    align-self: start;
+    grid-column: 1;
+    grid-row: 3;
+    font-size: 0.66rem;
+  }
+
+  .category-chip-arrow {
+    align-self: center;
+    grid-column: 2;
+    grid-row: 1;
+    font-size: 1rem;
+  }
+}
+
+/* Em telas excepcionalmente estreitas, priorize legibilidade. */
+@media (max-width: 22rem) {
+  .category-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Preserve o layout amplo aprovado no desktop. */
+@media (min-width: 72rem) {
+  .category-list {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
