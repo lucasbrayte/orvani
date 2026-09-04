@@ -117,7 +117,7 @@ def test_ack_advances_after_success_even_when_server_reports_no_change(valid_row
 
 
 def test_validation_error_stays_local_and_is_not_uploaded(valid_row):
-    invalid = replace(valid_row, current_price=None)
+    invalid = replace(valid_row, affiliate_url="")
     wb = FakeWorkbook([invalid])
     api = FakeApi()
     service = SyncService(wb, api)
@@ -126,7 +126,7 @@ def test_validation_error_stays_local_and_is_not_uploaded(valid_row):
     service.run_once(1.0)
 
     assert api.upserts == []
-    assert "Preço Atual" in wb.errors[2]
+    assert "Link Afiliado" in wb.errors[2]
 
 
 def test_status_poll_runs_once_per_interval(valid_row):

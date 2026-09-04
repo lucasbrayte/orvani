@@ -4,10 +4,13 @@ import hashlib
 import json
 
 from .models import CatalogRow
+from .normalization import normalize_catalog_row
 
 
 def editable_payload(row: CatalogRow) -> dict[str, object]:
-    return {
+    row = normalize_catalog_row(row)
+
+    payload: dict[str, object] = {
         "ID Automação": row.automation_id,
         "Ativo": row.active,
         "Publicar": row.publish,
@@ -22,8 +25,6 @@ def editable_payload(row: CatalogRow) -> dict[str, object]:
         "Categoria": row.category,
         "Subcategoria": row.subcategory,
         "Tipo": row.product_type,
-        "Preço Atual": format(row.current_price, "f") if row.current_price is not None else "",
-        "Preço Anterior": format(row.previous_price, "f") if row.previous_price is not None else "",
         "Cupom": row.coupon,
         "Validade do Cupom": row.coupon_expires_at,
         "Imagem 1": row.images[0],
@@ -32,6 +33,17 @@ def editable_payload(row: CatalogRow) -> dict[str, object]:
         "Imagem 4": row.images[3],
         "Texto do Botão": row.button_text,
     }
+
+    if row.current_price is not None:
+        payload["Preço Atual"] = format(
+            row.current_price, "f"
+        )
+    if row.previous_price is not None:
+        payload["Preço Anterior"] = format(
+            row.previous_price, "f"
+        )
+
+    return payload
 
 
 def row_hash(row: CatalogRow) -> str:

@@ -9,7 +9,7 @@ from .api_client import OrvaniApiClient
 from .config import ConfigurationError, LocalSettings
 from .sync_service import SyncService
 from .uno_client import LibreOfficeWorkbook
-from .workbook_init import initialize_workbook
+from .workbook_init import initialize_document, initialize_workbook
 
 
 def build_parser():
@@ -55,6 +55,10 @@ def _run(settings: LocalSettings) -> int:
     print(f"Aguardando Orvani.ods: {settings.workbook_path}")
     while not workbook.attach_expected_document(settings.workbook_path):
         time.sleep(2)
+
+    # Reaplica o contrato visual na planilha existente:
+    # listas com Sim/Não e Automático/Manual/Bloqueado.
+    initialize_document(workbook.document)
 
     api = OrvaniApiClient(settings.webapp_url, settings.sync_secret)
     try:

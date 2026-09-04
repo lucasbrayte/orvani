@@ -4,6 +4,7 @@ from decimal import Decimal
 from urllib.parse import urlsplit
 
 from .models import CatalogRow
+from .normalization import normalize_catalog_row
 
 
 class LocalValidationError(ValueError):
@@ -26,29 +27,47 @@ def _https(value: str, field: str) -> None:
 
 def _positive(value: Decimal | None, field: str) -> None:
     if value is not None and value <= 0:
-        raise LocalValidationError(f"{field} deve ser maior que zero.")
+        raise LocalValidationError(
+            f"{field} deve ser maior que zero."
+        )
 
 
 def validate_catalog_row(row: CatalogRow) -> None:
+    row = normalize_catalog_row(row)
+
     for field_name, value in (
         ("Ativo", row.active),
         ("Publicar", row.publish),
         ("Destaque", row.featured),
     ):
         if value not in YES_NO:
-            raise LocalValidationError(f"{field_name} deve ser Sim ou Não.")
+            raise LocalValidationError(
+                f"{field_name} deve ser Sim ou Não."
+            )
 
     if row.update_mode not in UPDATE_MODES:
-        raise LocalValidationError("Modo Atualização inválido.")
+        raise LocalValidationError(
+            "Modo Atualização inválido."
+        )
 
     if row.partner not in PARTNERS:
-        raise LocalValidationError("Plataforma não suportada nesta versão.")
+        raise LocalValidationError(
+            "Plataforma não pôde ser identificada pelos links."
+        )
 
     if row.product_type and row.product_type not in PRODUCT_TYPES:
-        raise LocalValidationError("Tipo deve ser Físico ou Digital.")
+        raise LocalValidationError(
+            "Tipo deve ser Físico ou Digital."
+        )
 
-    if not row.product_url and not row.affiliate_url:
-        raise LocalValidationError("Informe Link Produto ou Link Afiliado.")
+    if not row.product_url:
+        raise LocalValidationError(
+            "Link Produto é obrigatório."
+        )
+    if not row.affiliate_url:
+        raise LocalValidationError(
+            "Link Afiliado é obrigatório."
+        )
 
     _https(row.product_url, "Link Produto")
     _https(row.affiliate_url, "Link Afiliado")
@@ -63,22 +82,6 @@ def validate_catalog_row(row: CatalogRow) -> None:
         and row.previous_price is not None
         and row.previous_price <= row.current_price
     ):
-        raise LocalValidationError("Preço Anterior deve ser maior que Preço Atual.")
-
-    if row.update_mode == "Manual" and row.publish == "Sim":
-        required = (
-            ("Nome", row.name),
-            ("Descrição", row.description),
-            ("Categoria", row.category),
-            ("Subcategoria", row.subcategory),
-            ("Tipo", row.product_type),
+        raise LocalValidationError(
+            "Preço Anterior deve ser maior que Preço Atual."
         )
-        for field, value in required:
-            if not value.strip():
-                raise LocalValidationError(f"{field} é obrigatório no modo Manual.")
-
-        if row.current_price is None:
-            raise LocalValidationError("Preço Atual é obrigatório no modo Manual.")
-
-        if not any(image.strip() for image in row.images):
-            raise LocalValidationError("Ao menos uma imagem é obrigatória no modo Manual.")
