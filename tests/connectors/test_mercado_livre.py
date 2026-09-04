@@ -132,6 +132,35 @@ def test_catalog_product_url_uses_the_offer_item_id_from_pdp_filters():
     assert extract_mercado_item_id(url) == "MLB4431628133"
 
 
+def test_catalog_affiliate_url_accepts_exact_wid_from_fragment():
+    from automation.connectors.mercado_livre import extract_mercado_item_id
+
+    url = (
+        "https://www.mercadolivre.com.br/creatina-1kg-suplemento-monohidratada-"
+        "em-po-100-pura-soldiers-nutrition/p/MLB18725310"
+        "?pdp_filters=deal%3AMLB1578289-1&extra_comm=false&brand_comm=false"
+        "#polycard_client=affiliates&wid=MLB2766771378&sid=affiliates"
+    )
+
+    assert extract_mercado_item_id(url) == "MLB2766771378"
+
+
+def test_catalog_url_rejects_untrusted_fragment_wid():
+    from automation.connectors.mercado_livre import extract_mercado_item_id
+
+    no_affiliate_marker = (
+        "https://www.mercadolivre.com.br/produto/p/MLB18725310"
+        "#wid=MLB2766771378"
+    )
+    ambiguous = (
+        "https://www.mercadolivre.com.br/produto/p/MLB18725310"
+        "#polycard_client=affiliates&wid=MLB2766771378&wid=MLB2766771379"
+    )
+
+    assert extract_mercado_item_id(no_affiliate_marker) is None
+    assert extract_mercado_item_id(ambiguous) is None
+
+
 def test_catalog_product_url_without_trusted_offer_filter_is_not_an_item_id():
     from automation.connectors.mercado_livre import extract_mercado_item_id
 

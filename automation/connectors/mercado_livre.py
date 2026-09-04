@@ -67,7 +67,30 @@ def extract_mercado_item_id(value: object) -> str | None:
             match = _PDP_FILTER_ITEM_ID.search(raw_filters)
             if match is not None:
                 return f"MLB{match.group(1)}"
-        return None
+
+        host = (parsed.hostname or "").lower().rstrip(".")
+        trusted_host = (
+            host == "mercadolivre.com.br"
+            or host.endswith(".mercadolivre.com.br")
+        )
+        if parsed.scheme.casefold() != "https" or not trusted_host:
+            return None
+
+        try:
+            fragment = parse_qs(
+                parsed.fragment,
+                keep_blank_values=False,
+                strict_parsing=False,
+                max_num_fields=10,
+            )
+        except ValueError:
+            return None
+
+        wid_values = fragment.get("wid", ())
+        if fragment.get("polycard_client", ()) != ["affiliates"] or len(wid_values) != 1:
+            return None
+
+        return _exact_item_id(wid_values[0])
 
     match = _ITEM_ID.search(candidate)
     if match is None:
