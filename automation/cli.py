@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 import sys
 from typing import Any, Protocol
 
-from .config import IMPORT_HEADERS, PARTNERS, PRODUCTS_HEADERS, PartnerConfig, Settings, normalize_unicode_text
+from .config import DIVULGATION_WORKSHEET, IMPORT_HEADERS, PARTNERS, PRODUCTS_HEADERS, PartnerConfig, Settings, normalize_unicode_text
 from .connectors.base import build_connector_registry
 from .http_client import SafeHttpClient
 from .models import AmbiguousProductMatchError, ConfigurationError, ImportRecord, ImportStatus, SheetSchemaError
@@ -101,6 +101,7 @@ def main(argv: Sequence[str] | None = None, cli_dependencies: CliDependencies | 
                 dependencies.registry,
                 import_worksheet=dependencies.settings.import_worksheet,
                 products_worksheet=dependencies.settings.products_worksheet,
+                divulgation_worksheet=DIVULGATION_WORKSHEET,
             ).run(arguments.mode, dry_run=arguments.dry_run)
             statuses = Counter(item.final_status.value for item in report.items)
             status_counts = ",".join(
@@ -113,6 +114,7 @@ def main(argv: Sequence[str] | None = None, cli_dependencies: CliDependencies | 
                 "sync: "
                 f"itens={len(report.items)} importações_planejadas={len(report.planned_import_updates)} "
                 f"produtos_planejados={len(report.planned_product_updates)} "
+                f"divulgacoes_planejadas={len(report.planned_divulgation_updates)} "
                 f"produtos_ranges={product_ranges} estados={status_counts} dry_run={int(arguments.dry_run)}"
             )
             return 0

@@ -1,6 +1,12 @@
 name: Sync affiliate catalog
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - "automation/**"
+      - ".github/workflows/sync-affiliates.yml"
   workflow_dispatch:
     inputs:
       mode:

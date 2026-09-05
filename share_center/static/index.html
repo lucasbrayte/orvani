@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Orvani — Central de Divulgação</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">O</span><div><strong>ORVANI</strong><span>Central de Divulgação</span></div></div>
+    <div class="live"><span></span> Local e privado</div>
+  </header>
+  <main>
+    <section class="hero">
+      <div><p class="eyebrow">FILA DE MARKETING</p><h1>Publicações prontas para o WhatsApp.</h1>
+      <p>Produtos novos entram aqui depois de publicados na Orvani. Copie o conteúdo e publique manualmente no seu Canal.</p></div>
+      <button class="refresh" id="refresh" type="button">Atualizar</button>
+    </section>
+    <section class="toolbar" aria-label="Filtros">
+      <button class="filter active" data-filter="PENDENTE" type="button">Pendentes <span id="count-pendente">0</span></button>
+      <button class="filter" data-filter="PUBLICADO" type="button">Publicados <span id="count-publicado">0</span></button>
+      <button class="filter" data-filter="ARQUIVADO" type="button">Arquivados <span id="count-arquivado">0</span></button>
+      <button class="filter" data-filter="TODOS" type="button">Todos <span id="count-todos">0</span></button>
+    </section>
+    <p class="notice" id="notice" role="status" aria-live="polite"></p>
+    <section class="grid" id="grid" aria-live="polite"></section>
+  </main>
+  <template id="card-template">
+    <article class="card">
+      <a class="media" target="_blank" rel="noopener noreferrer"><img loading="lazy" referrerpolicy="no-referrer" alt=""></a>
+      <div class="card-body">
+        <div class="meta"><span class="partner"></span><span class="status"></span></div>
+        <h2></h2><p class="description"></p><strong class="price"></strong>
+        <div class="link-row"><span class="affiliate"></span></div>
+        <div class="actions primary-actions">
+          <button data-action="copy-publication" type="button">Copiar publicação</button>
+          <a data-action="whatsapp" target="_blank" rel="noopener noreferrer">Abrir WhatsApp</a>
+        </div>
+        <div class="actions secondary-actions">
+          <button data-action="copy-link" type="button">Copiar link</button>
+          <a data-action="image" target="_blank" rel="noopener noreferrer">Abrir imagem</a>
+        </div>
+        <div class="actions status-actions">
+          <button data-action="published" type="button">Marcar publicado</button>
+          <button data-action="pending" type="button">Voltar a pendente</button>
+          <button data-action="archive" type="button">Arquivar</button>
+        </div>
+      </div>
+    </article>
+  </template>
+  <script src="/app.js" defer></script>
+</body>
+</html>

@@ -23,6 +23,7 @@ from uuid import UUID
 
 from .config import (
     CATALOG_CURRENCY,
+    DIVULGATION_HEADERS,
     IMPORT_HEADERS,
     IMPORT_WORKSHEET,
     PARTNERS,
@@ -53,7 +54,7 @@ from .models import (
     UnsafeUrlError,
 )
 from .security import normalize_url_for_signature, validate_https_url
-from .sheets import SheetsGateway, batch_write, read_table
+from .sheets import SheetsGateway, batch_write, ensure_divulgation_sheet, read_table
 from .connectors import (
     extract_mercado_catalog_id,
     extract_mercado_item_id,
@@ -65,6 +66,7 @@ from .connectors import (
 
 _YES = "sim"
 _PRODUCT_LAST_COLUMN = "T"
+_DIVULGATION_LAST_COLUMN = "K"
 _ISO_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", flags=re.ASCII)
 _ISO_TIMESTAMP = re.compile(
     r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
@@ -252,6 +254,151 @@ def plan_publication(
         ) + 1
     range_name = _products_range(worksheet, row_number)
     return (SheetUpdate(range_name, (values,)),)
+
+
+def should_queue_divulgation(
+    initial_status: ImportStatus,
+    final_status: ImportStatus,
+) -> bool:
+    return (
+        isinstance(initial_status, ImportStatus)
+        and isinstance(final_status, ImportStatus)
+        and initial_status is not ImportStatus.PUBLICADO
+        and final_status is ImportStatus.PUBLICADO
+    )
+
+
+def _divulgation_id(record: ImportRecord) -> str:
+    automation_id = _text_or_blank(record.automation_id)
+    if not automation_id:
+        raise InvalidProductDataError(
+            "A divulgação exige ID Automação estável."
+        )
+    return sha256(
+        ("orvani-divulgacao-v1\x00" + automation_id).encode("utf-8")
+    ).hexdigest()[:32]
+
+
+def _short_divulgation_description(
+    value: Any,
+    limit: int = 220,
+) -> str:
+    text = _text_or_blank(value)
+    if len(text) <= limit:
+        return text
+    candidate = text[: limit + 1]
+    if " " in candidate:
+        candidate = candidate.rsplit(" ", 1)[0]
+    candidate = candidate.rstrip(" .,;:-")
+    return (candidate or text[:limit]).rstrip() + "…"
+
+
+def _divulgation_ids(rows: Sequence[tuple[Any, ...]]) -> set[str]:
+    output: set[str] = set()
+    for row in rows:
+        if not isinstance(row, tuple) or len(row) > len(DIVULGATION_HEADERS):
+            raise SheetSchemaError("Uma linha de Divulgação é inválida.")
+        cells = row + ("",) * (len(DIVULGATION_HEADERS) - len(row))
+        share_id = _text_or_blank(cells[0])
+        if not share_id:
+            if any(cell not in (None, "") for cell in cells):
+                raise SheetSchemaError(
+                    "Uma linha de Divulgação não possui ID."
+                )
+            continue
+        if not re.fullmatch(r"[0-9a-f]{32}", share_id):
+            raise SheetSchemaError("Um ID de Divulgação é inválido.")
+        if share_id in output:
+            raise SheetSchemaError("Há ID Divulgação duplicado.")
+        output.add(share_id)
+    return output
+
+
+def plan_divulgation_update(
+    record: ImportRecord,
+    product: ProductRow,
+    *,
+    existing_ids: set[str],
+    row_number: int,
+    created_at: datetime,
+    worksheet: str,
+) -> SheetUpdate | None:
+    if not isinstance(record, ImportRecord) or not isinstance(product, ProductRow):
+        raise InvalidProductDataError(
+            "A divulgação recebeu produto inválido."
+        )
+    if not isinstance(existing_ids, set) or not all(
+        isinstance(item, str) for item in existing_ids
+    ):
+        raise InvalidProductDataError("A fila de divulgação é inválida.")
+    if (
+        not isinstance(row_number, int)
+        or isinstance(row_number, bool)
+        or row_number < 2
+    ):
+        raise SheetSchemaError("A linha de Divulgação é inválida.")
+    _validate_worksheet(worksheet)
+
+    share_id = _divulgation_id(record)
+    if share_id in existing_ids:
+        return None
+
+    price = (
+        product.promotional_price
+        if product.promotional_price is not None
+        else product.price
+    )
+    if price is None:
+        raise InvalidProductDataError("A divulgação exige preço.")
+    _valid_price(price)
+
+    image = _normalized_https_image_or_none(product.image_1)
+    if image is None:
+        raise InvalidProductDataError("A divulgação exige imagem HTTPS.")
+
+    partner_key = _canonical_partner_key(product.partner)
+    configuration = PARTNERS.get(partner_key)
+    partner = (
+        configuration.display_name
+        if configuration is not None
+        else _required_text(product.partner)
+    )
+
+    affiliate = _normalized_partner_link_or_none(
+        product.affiliate_url,
+        partner_key,
+    )
+    if affiliate is None:
+        raise InvalidProductDataError(
+            "A divulgação exige link afiliado autorizado."
+        )
+
+    instant = _utc_now(created_at)
+    external_id = (
+        _text_or_blank(product.reconstructed_external_id)
+        or _text_or_blank(record.external_id)
+    )
+    values = (
+        share_id,
+        _required_text(record.automation_id),
+        external_id,
+        partner,
+        _required_text(product.name),
+        _short_divulgation_description(product.description),
+        price,
+        image,
+        affiliate,
+        "PENDENTE",
+        instant.isoformat(timespec="seconds").replace("+00:00", "Z"),
+    )
+    if len(values) != len(DIVULGATION_HEADERS):
+        raise AssertionError("contrato Divulgação interno inválido")
+
+    range_name = (
+        "'" + worksheet.replace("'", "''")
+        + f"'!A{row_number}:{_DIVULGATION_LAST_COLUMN}{row_number}"
+    )
+    return SheetUpdate(range_name, (values,))
 
 
 def _canonical_value(value: Any, *, active: set[int]) -> list[Any]:
@@ -558,6 +705,7 @@ class SyncEngine:
         max_workers: int = _MAX_WORKERS,
         import_worksheet: str = IMPORT_WORKSHEET,
         products_worksheet: str = PRODUCTS_WORKSHEET,
+        divulgation_worksheet: str | None = None,
     ) -> None:
         if isinstance(max_workers, bool) or not isinstance(max_workers, int) or not 1 <= max_workers <= _MAX_WORKERS:
             raise ConfigurationError("O limite de concorrência é inválido.")
@@ -569,6 +717,9 @@ class SyncEngine:
         self._max_workers = max_workers
         self._imports = import_worksheet
         self._products = products_worksheet
+        if divulgation_worksheet is not None:
+            _validate_worksheet(divulgation_worksheet)
+        self._divulgation = divulgation_worksheet
 
     def run(self, mode: str, dry_run: bool = False) -> SyncReport:
         if not isinstance(mode, str) or mode not in {"pending", "full"}:
@@ -576,6 +727,23 @@ class SyncEngine:
         if not isinstance(dry_run, bool):
             raise ConfigurationError("O modo dry-run é inválido.")
         now = _utc_now(self._clock())
+
+        divulgation_rows: tuple[tuple[Any, ...], ...] = ()
+        if self._divulgation is not None:
+            created = ensure_divulgation_sheet(
+                self._gateway,
+                self._divulgation,
+                dry_run=dry_run,
+            )
+            if not created:
+                divulgation_rows = read_table(
+                    self._gateway,
+                    self._divulgation,
+                    headers=DIVULGATION_HEADERS,
+                )
+        existing_divulgation_ids = _divulgation_ids(divulgation_rows)
+        next_divulgation_row = len(divulgation_rows) + 2
+
         records, default_rows = self._read_import_records()
         product_rows = _read_product_rows(self._gateway, self._products)
         selected = tuple(record for record in records if _is_selected(record, mode, now))
@@ -625,6 +793,7 @@ class SyncEngine:
             if _sheet_update_row(update) not in blocked_row_numbers
         ]
         product_updates: list[SheetUpdate] = []
+        divulgation_updates: list[SheetUpdate] = []
         results: list[SyncItemResult] = []
         working_products = list(product_rows)
         for record in selected:
@@ -651,6 +820,36 @@ class SyncEngine:
             if publication:
                 product_updates.extend(publication)
 
+            if (
+                self._divulgation is not None
+                and should_queue_divulgation(
+                    record.status,
+                    item.final_status,
+                )
+            ):
+                published_product = find_product_match(
+                    record,
+                    working_products,
+                )
+                if published_product is None:
+                    raise SheetSchemaError(
+                        "Produto publicado não pôde ser associado à divulgação."
+                    )
+                share_update = plan_divulgation_update(
+                    record,
+                    published_product,
+                    existing_ids=existing_divulgation_ids,
+                    row_number=next_divulgation_row,
+                    created_at=now,
+                    worksheet=self._divulgation,
+                )
+                if share_update is not None:
+                    divulgation_updates.append(share_update)
+                    existing_divulgation_ids.add(
+                        share_update.values[0][0]
+                    )
+                    next_divulgation_row += 1
+
         import_updates = _dedupe_import_updates(import_updates)
         product_updates = _dedupe_product_updates(product_updates)
         report = SyncReport(
@@ -658,6 +857,7 @@ class SyncEngine:
             planned_import_updates=tuple(import_updates),
             planned_product_updates=tuple(product_updates),
             dry_run=dry_run,
+            planned_divulgation_updates=tuple(divulgation_updates),
         )
         if not dry_run:
             # Cross-sheet writes cannot be atomic.  Publish first, then expose
@@ -671,6 +871,18 @@ class SyncEngine:
                 )
                 _verify_product_updates_persisted(
                     self._gateway, report.planned_product_updates
+                )
+            if report.planned_divulgation_updates:
+                if self._divulgation is None:
+                    raise ConfigurationError(
+                        "A aba de Divulgação não foi configurada."
+                    )
+                _write_sync_batch(
+                    self._gateway,
+                    report.planned_divulgation_updates,
+                    worksheet=self._divulgation,
+                    headers=DIVULGATION_HEADERS,
+                    phase="divulgation",
                 )
             if report.planned_import_updates:
                 _write_sync_batch(
@@ -1823,6 +2035,7 @@ def _write_sync_batch(
     messages = {
         "checkpoint": "Não foi possível persistir o checkpoint da sincronização.",
         "products": "Não foi possível persistir os produtos planejados.",
+        "divulgation": "Não foi possível persistir a fila de divulgação.",
         "terminal": "Não foi possível persistir o resultado da sincronização.",
     }
     if phase not in messages:

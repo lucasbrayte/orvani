@@ -15,7 +15,7 @@ from uuid import uuid4
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
-from .config import IMPORT_HEADERS, PRODUCTS_HEADERS, PRODUCTS_HEADER_ROW, Settings
+from .config import DIVULGATION_HEADERS, IMPORT_HEADERS, PRODUCTS_HEADERS, PRODUCTS_HEADER_ROW, Settings
 from .models import ConfigurationError, ImportStatus, SheetSchemaError, SheetUpdate, UpdateMode
 
 _SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
@@ -131,6 +131,87 @@ def setup_import_sheet(gateway: SheetsGateway, worksheet: str, *, dry_run: bool 
     if plan.requests and not dry_run:
         gateway.batch_update(plan.requests)
     return plan
+
+
+def ensure_divulgation_sheet(
+    gateway: SheetsGateway,
+    worksheet: str,
+    *,
+    dry_run: bool = False,
+) -> bool:
+    # Ensure the backend marketing queue exists with the exact contract.
+    _validate_title(worksheet)
+    inventory = _sheet_inventory(gateway.get_spreadsheet())
+    existing = inventory.get(worksheet)
+    if existing is not None:
+        grid = existing["properties"]["gridProperties"]
+        if (
+            grid["rowCount"] < 2
+            or grid["columnCount"] < len(DIVULGATION_HEADERS)
+        ):
+            raise SheetSchemaError(
+                "A grade de Divulgação não comporta o contrato aprovado."
+            )
+        last_column = _column_label(len(DIVULGATION_HEADERS) - 1)
+        values = gateway.get_values(
+            _a1_range(worksheet, f"A1:{last_column}1")
+        ).get("values", [])
+        if (
+            not isinstance(values, list)
+            or not values
+            or not isinstance(values[0], list)
+        ):
+            raise SheetSchemaError(
+                "A aba Divulgação não possui o cabeçalho exigido."
+            )
+        validate_headers(values[0], expected=DIVULGATION_HEADERS)
+        return False
+
+    if dry_run:
+        return True
+
+    sheet_id = _next_unused_positive_sheet_id(inventory.values())
+    properties = {
+        "sheetId": sheet_id,
+        "title": worksheet,
+        "sheetType": "GRID",
+        "gridProperties": {
+            "rowCount": 5000,
+            "columnCount": max(_GRID_COLUMNS, len(DIVULGATION_HEADERS)),
+        },
+    }
+    header_values = [
+        {"userEnteredValue": {"stringValue": item}}
+        for item in DIVULGATION_HEADERS
+    ]
+    gateway.batch_update(
+        (
+            {"addSheet": {"properties": properties}},
+            {
+                "updateCells": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "startRowIndex": 0,
+                        "endRowIndex": 1,
+                        "startColumnIndex": 0,
+                        "endColumnIndex": len(DIVULGATION_HEADERS),
+                    },
+                    "rows": [{"values": header_values}],
+                    "fields": "userEnteredValue",
+                }
+            },
+            {
+                "updateSheetProperties": {
+                    "properties": {
+                        "sheetId": sheet_id,
+                        "gridProperties": {"frozenRowCount": 1},
+                    },
+                    "fields": "gridProperties.frozenRowCount",
+                }
+            },
+        )
+    )
+    return True
 
 
 def read_table(gateway: SheetsGateway, worksheet: str, *, headers: Sequence[str] = IMPORT_HEADERS) -> tuple[tuple[Any, ...], ...]:
@@ -369,7 +450,11 @@ def _approved_header_contract(headers: Sequence[str]) -> tuple[str, ...]:
     if not isinstance(headers, Sequence) or isinstance(headers, (str, bytes)):
         raise SheetSchemaError("O contrato da aba é inválido.")
     expected = tuple(headers)
-    if expected not in (IMPORT_HEADERS, PRODUCTS_HEADERS):
+    if expected not in (
+        IMPORT_HEADERS,
+        PRODUCTS_HEADERS,
+        DIVULGATION_HEADERS,
+    ):
         raise SheetSchemaError("O contrato da aba é inválido.")
     return expected
 

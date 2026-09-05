@@ -236,6 +236,7 @@ class SyncReport:
     planned_import_updates: tuple[SheetUpdate, ...]
     planned_product_updates: tuple[SheetUpdate, ...]
     dry_run: bool
+    planned_divulgation_updates: tuple[SheetUpdate, ...] = ()
 
     def final_status(self, row_number: int) -> ImportStatus:
         for item in self.items:
