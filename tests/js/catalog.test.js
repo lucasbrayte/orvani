@@ -751,11 +751,23 @@ test("amazon is publicly exposed only after backend enablement", () => {
   assert.equal(core.CONFIG.affiliatePartners.amazon.label, "Amazon");
   assert.deepEqual(
     [...core.CONFIG.affiliatePartners.amazon.hosts],
-    ["amazon.com.br", "amzn.to"],
+    ["amazon.com.br", "amzn.to", "link.amazon"],
   );
   assert.equal(
     core.validatePartnerUrl("https://www.amazon.com.br/dp/B0D123ABCD", "amazon"),
     "https://www.amazon.com.br/dp/B0D123ABCD",
+  );
+  assert.equal(
+    core.validatePartnerUrl("https://link.amazon/B0iTSeEgH", "amazon"),
+    "https://link.amazon/B0iTSeEgH",
+  );
+  assert.equal(
+    core.validatePartnerUrl("http://link.amazon/B0iTSeEgH", "amazon"),
+    null,
+  );
+  assert.equal(
+    core.validatePartnerUrl("https://link.amazon.evil.example/B0iTSeEgH", "amazon"),
+    null,
   );
   assert.equal(
     core.validatePartnerUrl("https://amazon.com.br.evil.example/dp/B0D123ABCD", "amazon"),

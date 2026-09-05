@@ -62,7 +62,7 @@ def test_amazon_backend_partner_configuration_is_exact():
     partner = PARTNERS["amazon"]
     assert partner.key == "amazon"
     assert partner.display_name == "Amazon"
-    assert partner.allowed_hosts == ("amazon.com.br", "amzn.to")
+    assert partner.allowed_hosts == ("amazon.com.br", "amzn.to", "link.amazon")
     assert partner.live_verified is False
 
 
@@ -98,9 +98,30 @@ def test_amazon_partner_urls_accept_only_approved_hosts():
         f"https://www.amazon.com.br/dp/{ASIN}", "amazon"
     )
     assert sync._normalized_partner_link_or_none("https://amzn.to/4abcXYZ", "amazon")
+    assert sync._normalized_partner_link_or_none(
+        "https://link.amazon/B0iTSeEgH", "amazon"
+    )
     assert (
         sync._normalized_partner_link_or_none(
             f"https://amazon.com.br.evil.example/dp/{ASIN}", "amazon"
+        )
+        is None
+    )
+    assert (
+        sync._normalized_partner_link_or_none(
+            "https://link.amazon.evil.example/B0iTSeEgH", "amazon"
+        )
+        is None
+    )
+    assert (
+        sync._normalized_partner_link_or_none(
+            "https://evil-link.amazon.example/B0iTSeEgH", "amazon"
+        )
+        is None
+    )
+    assert (
+        sync._normalized_partner_link_or_none(
+            "http://link.amazon/B0iTSeEgH", "amazon"
         )
         is None
     )
@@ -203,3 +224,21 @@ def test_amazon_persisted_error_is_reselected_when_fallback_is_ready():
 def test_amazon_readiness_stays_false_without_direct_asin():
     record = _record(product_url="https://www.amazon.com.br/s?k=produto")
     assert sync._manual_amazon_fallback_ready(record) is False
+
+
+def test_amazon_fallback_accepts_link_amazon_as_affiliate_only():
+    record = _record(affiliate_url="https://link.amazon/B0iTSeEgH")
+    snapshot = sync._manual_amazon_snapshot(record, NOW)
+
+    assert snapshot.external_id == ASIN
+    assert snapshot.source_url == record.product_url
+    assert snapshot.affiliate_url == "https://link.amazon/B0iTSeEgH"
+
+
+def test_amazon_link_amazon_is_not_used_as_product_identity():
+    record = _record(
+        product_url="https://link.amazon/B0iTSeEgH",
+        affiliate_url="https://link.amazon/B0iTSeEgH",
+    )
+    with pytest.raises(InvalidProductDataError):
+        sync._manual_amazon_snapshot(record, NOW)

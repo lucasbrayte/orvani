@@ -55,6 +55,7 @@ def infer_partner(*urls: str) -> str:
         if (
                 _host_matches(host, "amazon.com.br")
                 or _host_matches(host, "amzn.to")
+                or _host_matches(host, "link.amazon")
         ):
             return "Amazon"
     return ""

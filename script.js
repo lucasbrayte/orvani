@@ -4,7 +4,7 @@ const CONFIG = {
   affiliatePartners: {
     amazon: {
       label: "Amazon",
-      hosts: ["amazon.com.br", "amzn.to"],
+      hosts: ["amazon.com.br", "amzn.to", "link.amazon"],
     },
     shopee: {
       label: "Shopee",
