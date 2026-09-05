@@ -7,40 +7,111 @@
   <title>Orvani — Central de Divulgação</title>
   <link rel="stylesheet" href="/style.css">
 </head>
-<body>
-  <header class="topbar">
-    <div class="brand"><span class="brand-mark">O</span><div><strong>ORVANI</strong><span>Central de Divulgação</span></div></div>
-    <div class="live"><span></span> Local e privado</div>
-  </header>
-  <main>
-    <section class="hero">
-      <div><p class="eyebrow">FILA DE MARKETING</p><h1>Publicações prontas para o WhatsApp.</h1>
-      <p>Produtos novos entram aqui depois de publicados na Orvani. Copie o conteúdo e publique manualmente no seu Canal.</p></div>
-      <button class="refresh" id="refresh" type="button">Atualizar</button>
-    </section>
-    <section class="toolbar" aria-label="Filtros">
-      <button class="filter active" data-filter="PENDENTE" type="button">Pendentes <span id="count-pendente">0</span></button>
-      <button class="filter" data-filter="PUBLICADO" type="button">Publicados <span id="count-publicado">0</span></button>
-      <button class="filter" data-filter="ARQUIVADO" type="button">Arquivados <span id="count-arquivado">0</span></button>
-      <button class="filter" data-filter="TODOS" type="button">Todos <span id="count-todos">0</span></button>
-    </section>
-    <p class="notice" id="notice" role="status" aria-live="polite"></p>
-    <section class="grid" id="grid" aria-live="polite"></section>
-  </main>
+<body class="locked">
+  <section class="login-panel" id="login-panel" aria-labelledby="login-title">
+    <div class="login-card">
+      <div class="login-logo" aria-hidden="true">O</div>
+      <p class="eyebrow">ACESSO PROTEGIDO</p>
+      <h1 id="login-title">Central de Divulgação</h1>
+      <p class="login-copy">
+        Digite o PIN de 8 dígitos configurado no notebook para acessar a fila.
+      </p>
+      <form id="login-form" autocomplete="off">
+        <label for="pin-input">PIN de acesso</label>
+        <input
+          id="pin-input"
+          name="pin"
+          type="password"
+          inputmode="numeric"
+          pattern="[0-9]{8}"
+          minlength="8"
+          maxlength="8"
+          autocomplete="current-password"
+          placeholder="••••••••"
+          required
+        >
+        <button type="submit">Entrar</button>
+      </form>
+      <p class="login-notice" id="login-notice" role="status" aria-live="polite"></p>
+      <small>Disponível somente na rede privada do notebook.</small>
+    </div>
+  </section>
+
+  <div id="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">O</span>
+        <div>
+          <strong>ORVANI</strong>
+          <span>Central de Divulgação</span>
+        </div>
+      </div>
+      <div class="top-actions">
+        <div class="live"><span></span> Rede local protegida</div>
+        <button class="logout" id="logout" type="button">Sair</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div>
+          <p class="eyebrow">FILA DE MARKETING</p>
+          <h1>Publicações prontas para o WhatsApp.</h1>
+          <p>
+            Produtos publicados na Orvani ficam prontos para você copiar e
+            publicar manualmente no seu Canal.
+          </p>
+        </div>
+        <button class="refresh" id="refresh" type="button">Atualizar</button>
+      </section>
+
+      <section class="toolbar" aria-label="Filtros">
+        <button class="filter active" data-filter="PENDENTE" type="button">
+          Pendentes <span id="count-pendente">0</span>
+        </button>
+        <button class="filter" data-filter="PUBLICADO" type="button">
+          Publicados <span id="count-publicado">0</span>
+        </button>
+        <button class="filter" data-filter="ARQUIVADO" type="button">
+          Arquivados <span id="count-arquivado">0</span>
+        </button>
+        <button class="filter" data-filter="TODOS" type="button">
+          Todos <span id="count-todos">0</span>
+        </button>
+      </section>
+
+      <p class="notice" id="notice" role="status" aria-live="polite"></p>
+      <section class="grid" id="grid" aria-live="polite"></section>
+    </main>
+  </div>
+
   <template id="card-template">
     <article class="card">
-      <a class="media" target="_blank" rel="noopener noreferrer"><img loading="lazy" referrerpolicy="no-referrer" alt=""></a>
+      <a class="media" target="_blank" rel="noopener noreferrer">
+        <img loading="lazy" referrerpolicy="no-referrer" alt="">
+      </a>
       <div class="card-body">
-        <div class="meta"><span class="partner"></span><span class="status"></span></div>
-        <h2></h2><p class="description"></p><strong class="price"></strong>
+        <div class="meta">
+          <span class="partner"></span>
+          <span class="status"></span>
+        </div>
+        <h2></h2>
+        <p class="description"></p>
+        <strong class="price"></strong>
         <div class="link-row"><span class="affiliate"></span></div>
         <div class="actions primary-actions">
-          <button data-action="copy-publication" type="button">Copiar publicação</button>
-          <a data-action="whatsapp" target="_blank" rel="noopener noreferrer">Abrir WhatsApp</a>
+          <button data-action="copy-publication" type="button">
+            Copiar publicação
+          </button>
+          <a data-action="whatsapp" target="_blank" rel="noopener noreferrer">
+            Abrir WhatsApp
+          </a>
         </div>
         <div class="actions secondary-actions">
           <button data-action="copy-link" type="button">Copiar link</button>
-          <a data-action="image" target="_blank" rel="noopener noreferrer">Abrir imagem</a>
+          <a data-action="image" target="_blank" rel="noopener noreferrer">
+            Abrir imagem
+          </a>
         </div>
         <div class="actions status-actions">
           <button data-action="published" type="button">Marcar publicado</button>
@@ -50,6 +121,7 @@
       </div>
     </article>
   </template>
+
   <script src="/app.js" defer></script>
 </body>
 </html>

@@ -66,6 +66,6 @@ def test_state_store_is_atomic_private_and_rejects_unknown_status(tmp_path):
     else:
         raise AssertionError("status inválido foi aceito")
 
-def test_share_server_is_loopback_only():
-    assert HOST == "127.0.0.1"
+def test_share_server_listens_on_lan_with_fixed_port():
+    assert HOST == "0.0.0.0"
     assert PORT == 8765
