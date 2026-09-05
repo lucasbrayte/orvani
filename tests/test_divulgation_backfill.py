@@ -67,7 +67,7 @@ def test_backfill_plans_an_old_published_product_once():
     assert report.invalid == 0
     assert len(report.updates) == 1
     update = report.updates[0]
-    assert update.range_name == "'Divulgação'!A2:K2"
+    assert update.range_name == "'Divulgação'!A2:M2"
     assert update.values[0][9] == "PENDENTE"
     assert update.values[0][4] == "Air Fryer antiga"
     assert update.values[0][6] == Decimal("89.90")
@@ -143,9 +143,9 @@ class Gateway:
                 product.image_3, product.image_4, product.order, product.featured,
             ]
             return {"values": [list(PRODUCTS_HEADERS), [], row]}
-        if range_name == "'Divulgação'!A1:K1":
+        if range_name == "'Divulgação'!A1:M1":
             return {"values": [list(DIVULGATION_HEADERS)]}
-        if range_name == "'Divulgação'!A1:K":
+        if range_name == "'Divulgação'!A1:M":
             return {"values": [list(DIVULGATION_HEADERS)]}
         raise AssertionError(f"range inesperado: {range_name}")
 
@@ -190,7 +190,7 @@ def test_cli_backfill_live_writes_only_divulgation(capsys):
     assert len(gateway.value_writes) == 1
     data, option = gateway.value_writes[0]
     assert option == "RAW"
-    assert data[0]["range"] == "'Divulgação'!A2:K2"
+    assert data[0]["range"] == "'Divulgação'!A2:M2"
 
 
 def test_runner_exposes_safe_backfill_modes():

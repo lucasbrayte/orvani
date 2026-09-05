@@ -66,7 +66,7 @@ from .connectors import (
 
 _YES = "sim"
 _PRODUCT_LAST_COLUMN = "T"
-_DIVULGATION_LAST_COLUMN = "K"
+_DIVULGATION_LAST_COLUMN = "M"
 _ISO_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", flags=re.ASCII)
 _ISO_TIMESTAMP = re.compile(
     r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
@@ -343,14 +343,23 @@ def plan_divulgation_update(
     if share_id in existing_ids:
         return None
 
-    price = (
-        product.promotional_price
-        if product.promotional_price is not None
-        else product.price
-    )
-    if price is None:
+    if product.price is None:
         raise InvalidProductDataError("A divulgação exige preço.")
-    _valid_price(price)
+    _valid_price(product.price)
+
+    price = product.price
+    previous_price: Decimal | str = ""
+    discount: int | str = ""
+    if product.promotional_price is not None:
+        try:
+            _valid_price(product.promotional_price)
+        except InvalidProductDataError:
+            pass
+        else:
+            if product.price > product.promotional_price:
+                price = product.promotional_price
+                previous_price = product.price
+                discount = calculate_discount(price, previous_price)
 
     image = _normalized_https_image_or_none(product.image_1)
     if image is None:
@@ -390,6 +399,8 @@ def plan_divulgation_update(
         affiliate,
         "PENDENTE",
         instant.isoformat(timespec="seconds").replace("+00:00", "Z"),
+        previous_price,
+        discount,
     )
     if len(values) != len(DIVULGATION_HEADERS):
         raise AssertionError("contrato Divulgação interno inválido")

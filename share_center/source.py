@@ -18,8 +18,9 @@ CSV_URL = (
 HEADERS = (
     "ID Divulgação", "ID Automação", "ID Externo", "Plataforma", "Nome",
     "Descrição Curta", "Preço", "Imagem", "Link Afiliado",
-    "Status WhatsApp", "Criado em",
+    "Status WhatsApp", "Criado em", "Preço Anterior", "Desconto",
 )
+LEGACY_HEADERS = HEADERS[:-2]
 STATUSES = frozenset({"PENDENTE", "PUBLICADO", "ARQUIVADO"})
 _SHARE_ID = re.compile(r"[0-9a-f]{32}")
 _MAX_BODY = 2_000_000
@@ -40,6 +41,8 @@ class ShareItem:
     affiliate_url: str
     backend_status: str
     created_at: str
+    previous_price: Decimal | None = None
+    discount: int | None = None
 
     def as_dict(self, *, status=None, status_updated_at=""):
         effective = status or self.backend_status
@@ -97,12 +100,45 @@ def _price(value: str) -> Decimal:
         raise SourceError("Preço inválido.")
     return result
 
+def _promotion(
+    previous_value: str,
+    discount_value: str,
+    current: Decimal,
+) -> tuple[Decimal | None, int | None]:
+    previous_text = str(previous_value).strip()
+    discount_text = str(discount_value).strip()
+    if not previous_text or not discount_text:
+        return None, None
+    try:
+        previous = _price(previous_text)
+        raw_discount = Decimal(discount_text.replace(",", "."))
+    except (SourceError, InvalidOperation):
+        return None, None
+    integral = raw_discount.to_integral_value()
+    if raw_discount != integral:
+        return None, None
+    stored = int(integral)
+    if previous <= current or not 1 <= stored <= 99:
+        return None, None
+    calculated = int(
+        (
+            (previous - current) * Decimal("100") / previous
+        ).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    )
+    if stored != calculated:
+        return None, None
+    return previous, calculated
+
+
 def parse_divulgation_csv(text: str) -> tuple[ShareItem, ...]:
     try:
         rows = list(csv.reader(io.StringIO(str(text))))
     except csv.Error:
         raise SourceError("CSV de Divulgação inválido.") from None
-    if not rows or tuple(rows[0]) != HEADERS:
+    if (
+        not rows
+        or tuple(rows[0]) not in (HEADERS, LEGACY_HEADERS)
+    ):
         raise SourceError("Cabeçalhos de Divulgação inválidos.")
 
     output = []
@@ -123,6 +159,10 @@ def parse_divulgation_csv(text: str) -> tuple[ShareItem, ...]:
         name = cells[4].strip()
         if not name:
             raise SourceError("Nome de divulgação ausente.")
+        price = _price(cells[6])
+        previous_price, discount = _promotion(
+            cells[11], cells[12], price
+        )
         output.append(ShareItem(
             share_id=share_id,
             automation_id=cells[1].strip(),
@@ -130,11 +170,13 @@ def parse_divulgation_csv(text: str) -> tuple[ShareItem, ...]:
             partner=cells[3].strip(),
             name=name,
             description=cells[5].strip(),
-            price=_price(cells[6]),
+            price=price,
             image_url=_safe_https(cells[7].strip(), "Imagem"),
             affiliate_url=_safe_https(cells[8].strip(), "Link Afiliado"),
             backend_status=status,
             created_at=cells[10].strip(),
+            previous_price=previous_price,
+            discount=discount,
         ))
     return tuple(output)
 
@@ -174,6 +216,13 @@ def publication_text(item: ShareItem) -> str:
     parts = [f"🛍️ {item.name.strip()}"]
     if item.description.strip():
         parts.append(item.description.strip())
-    parts.append(f"💰 {format_brl(item.price)}")
+    if item.previous_price is not None and item.discount is not None:
+        parts.append(f"🔥 *{item.discount}% OFF*")
+        parts.append(
+            f"De: ~{format_brl(item.previous_price)}~\n"
+            f"Por: *{format_brl(item.price)}*"
+        )
+    else:
+        parts.append(f"💰 {format_brl(item.price)}")
     parts.append("🔗 Confira na loja:\n" + item.affiliate_url)
     return "\n\n".join(parts)

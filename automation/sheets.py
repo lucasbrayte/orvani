@@ -139,7 +139,6 @@ def ensure_divulgation_sheet(
     *,
     dry_run: bool = False,
 ) -> bool:
-    # Ensure the backend marketing queue exists with the exact contract.
     _validate_title(worksheet)
     inventory = _sheet_inventory(gateway.get_spreadsheet())
     existing = inventory.get(worksheet)
@@ -164,7 +163,22 @@ def ensure_divulgation_sheet(
             raise SheetSchemaError(
                 "A aba Divulgação não possui o cabeçalho exigido."
             )
-        validate_headers(values[0], expected=DIVULGATION_HEADERS)
+        current = tuple(values[0])
+        legacy = tuple(DIVULGATION_HEADERS[:-2])
+        if current == tuple(DIVULGATION_HEADERS):
+            return False
+        if current != legacy:
+            raise SheetSchemaError(
+                "Os cabeçalhos da aba não correspondem ao contrato aprovado."
+            )
+        if not dry_run:
+            gateway.batch_values_update(
+                [{
+                    "range": _a1_range(worksheet, "L1:M1"),
+                    "values": [list(DIVULGATION_HEADERS[-2:])],
+                }],
+                "RAW",
+            )
         return False
 
     if dry_run:
@@ -223,7 +237,14 @@ def read_table(gateway: SheetsGateway, worksheet: str, *, headers: Sequence[str]
     ).get("values", [])
     if not isinstance(values, list) or not values or not isinstance(values[0], list):
         raise SheetSchemaError("A aba não possui dados legíveis.")
-    validate_headers(values[0], expected=expected)
+    actual_headers = tuple(values[0])
+    if (
+        expected == tuple(DIVULGATION_HEADERS)
+        and actual_headers == tuple(DIVULGATION_HEADERS[:-2])
+    ):
+        pass
+    else:
+        validate_headers(values[0], expected=expected)
     output: list[tuple[Any, ...]] = []
     for row in values[1:]:
         if not isinstance(row, list) or len(row) > len(expected):

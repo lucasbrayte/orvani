@@ -19,7 +19,7 @@ DIVULGATION_WORKSHEET = "Divulgação"
 DIVULGATION_HEADERS = (
     "ID Divulgação", "ID Automação", "ID Externo", "Plataforma", "Nome",
     "Descrição Curta", "Preço", "Imagem", "Link Afiliado",
-    "Status WhatsApp", "Criado em",
+    "Status WhatsApp", "Criado em", "Preço Anterior", "Desconto",
 )
 
 PRODUCTS_HEADERS = (

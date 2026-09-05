@@ -56,7 +56,7 @@ def test_divulgation_contract_is_small_and_stable():
     assert DIVULGATION_HEADERS == (
         "ID Divulgação", "ID Automação", "ID Externo", "Plataforma", "Nome",
         "Descrição Curta", "Preço", "Imagem", "Link Afiliado",
-        "Status WhatsApp", "Criado em",
+        "Status WhatsApp", "Criado em", "Preço Anterior", "Desconto",
     )
 
 def test_first_publication_plans_one_pending_divulgation():
@@ -65,7 +65,7 @@ def test_first_publication_plans_one_pending_divulgation():
         created_at=NOW, worksheet="Divulgação",
     )
     assert update is not None
-    assert update.range_name == "'Divulgação'!A2:K2"
+    assert update.range_name == "'Divulgação'!A2:M2"
     row = update.values[0]
     assert len(row) == len(DIVULGATION_HEADERS)
     assert row[1] == "550e8400-e29b-41d4-a716-446655440000"
@@ -157,8 +157,8 @@ def test_sync_engine_dry_run_queues_first_successful_publication():
     values = {
         _quoted("Importações", "A1:AF"): [list(IMPORT_HEADERS), record],
         _quoted("Produtos", "A4:T"): [list(PRODUCTS_HEADERS)],
-        _quoted("Divulgação", "A1:K1"): [list(DIVULGATION_HEADERS)],
-        _quoted("Divulgação", "A1:K"): [list(DIVULGATION_HEADERS)],
+        _quoted("Divulgação", "A1:M1"): [list(DIVULGATION_HEADERS)],
+        _quoted("Divulgação", "A1:M"): [list(DIVULGATION_HEADERS)],
     }
     gateway = FakeSheetsGateway(sheets=sheets, values=values)
 
