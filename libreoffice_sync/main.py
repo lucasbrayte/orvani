@@ -46,15 +46,42 @@ def _health(settings: LocalSettings) -> int:
     return 0 if ok else 1
 
 
-def _run(settings: LocalSettings) -> int:
-    workbook = LibreOfficeWorkbook.connect(
-        host=settings.uno_host,
-        port=settings.uno_port,
+def _wait_for_uno(
+    settings: LocalSettings,
+    *,
+    connector=None,
+    sleeper=time.sleep,
+):
+    connector = connector or LibreOfficeWorkbook.connect
+    print(
+        "Aguardando Orvani Catálogo em "
+        f"{settings.uno_host}:{settings.uno_port}",
+        flush=True,
     )
+    while True:
+        try:
+            return connector(
+                host=settings.uno_host,
+                port=settings.uno_port,
+            )
+        except Exception:
+            sleeper(2)
 
-    print(f"Aguardando Orvani.ods: {settings.workbook_path}")
-    while not workbook.attach_expected_document(settings.workbook_path):
-        time.sleep(2)
+
+def _wait_for_workbook(
+    workbook,
+    path,
+    *,
+    sleeper=time.sleep,
+) -> None:
+    print(f"Aguardando Orvani.ods: {path}", flush=True)
+    while not workbook.attach_expected_document(path):
+        sleeper(2)
+
+
+def _run(settings: LocalSettings) -> int:
+    workbook = _wait_for_uno(settings)
+    _wait_for_workbook(workbook, settings.workbook_path)
 
     # Reaplica o contrato visual na planilha existente:
     # listas com Sim/Não e Automático/Manual/Bloqueado.
