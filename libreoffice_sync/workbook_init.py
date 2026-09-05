@@ -119,15 +119,26 @@ def configure_catalog_sheet(sheet) -> None:
 def _apply_price_format(document, sheet) -> None:
     try:
         import uno  # type: ignore
+
         locale = uno.createUnoStruct("com.sun.star.lang.Locale")
         locale.Language = "pt"
         locale.Country = "BR"
+
+        # NumberFormatIndex.CURRENCY_1000DEC2 == 13.
+        # Usar o formato interno do próprio LibreOffice evita interpretar
+        # separadores EN ("#,##0.00") como placeholders extras em pt-BR.
         formats = document.NumberFormats
-        key = formats.queryKey("R$ #,##0.00", locale, True)
+        key = formats.getFormatIndex(13, locale)
         if key == -1:
-            key = formats.addNew("R$ #,##0.00", locale)
-        sheet.getCellRangeByPosition(13, 1, 14, 1999).NumberFormat = key
+            raise RuntimeError(
+                "LibreOffice não disponibilizou o formato monetário pt-BR."
+            )
+
+        sheet.getCellRangeByPosition(
+            13, 1, 14, 1999
+        ).NumberFormat = key
     except Exception:
+        # Formatação visual nunca deve impedir o funcionamento do sync.
         pass
 
 

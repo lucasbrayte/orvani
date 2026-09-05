@@ -186,3 +186,68 @@ def test_initialize_document_applies_full_catalog_ui_contract():
         row = sheet.Rows.getByIndex(row_index)
         assert row.Height == 700
         assert row.OptimalHeight is False
+
+
+def test_price_format_uses_builtin_brl_currency_with_two_decimals(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    import libreoffice_sync.workbook_init as workbook_init
+
+    class FakeLocale:
+        Language = ""
+        Country = ""
+
+    fake_uno = SimpleNamespace(
+        createUnoStruct=lambda name: FakeLocale()
+        if name == "com.sun.star.lang.Locale"
+        else None
+    )
+    monkeypatch.setitem(sys.modules, "uno", fake_uno)
+
+    class FakeRange:
+        def __init__(self):
+            self.NumberFormat = 0
+            self.values = (133.76, 199.90)
+
+    class FakeSheet:
+        def __init__(self):
+            self.price_range = FakeRange()
+            self.range_calls = []
+
+        def getCellRangeByPosition(self, *args):
+            self.range_calls.append(args)
+            return self.price_range
+
+    class FakeFormats:
+        def __init__(self):
+            self.index_calls = []
+            self.query_calls = []
+
+        def getFormatIndex(self, index, locale):
+            self.index_calls.append((index, locale.Language, locale.Country))
+            return 913
+
+        # A implementação antiga chama este método e recebe outra chave,
+        # garantindo um RED comportamental em vez de um teste só de texto.
+        def queryKey(self, pattern, locale, scan):
+            self.query_calls.append(
+                (pattern, locale.Language, locale.Country, scan)
+            )
+            return 777
+
+        def addNew(self, _pattern, _locale):
+            return 778
+
+    formats = FakeFormats()
+    document = SimpleNamespace(NumberFormats=formats)
+    sheet = FakeSheet()
+    before = sheet.price_range.values
+
+    workbook_init._apply_price_format(document, sheet)
+
+    assert formats.index_calls == [(13, "pt", "BR")]
+    assert formats.query_calls == []
+    assert sheet.range_calls == [(13, 1, 14, 1999)]
+    assert sheet.price_range.NumberFormat == 913
+    assert sheet.price_range.values == before
