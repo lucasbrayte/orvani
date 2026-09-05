@@ -75,7 +75,7 @@ def _gateway(import_rows=(), product_rows=(), *, sheets=True):
         values = {
             _quoted("Importações", "A1:AF"): [list(IMPORT_HEADERS), *import_rows],
             _quoted("Importações", "A1:AF1"): [list(IMPORT_HEADERS)],
-            _quoted("Produtos", "A4:T"): [list(PRODUCTS_HEADERS), *product_rows],
+            _quoted("Produtos", "A4:T"): [list(PRODUCTS_HEADERS), [], *product_rows],
         }
     return FakeSheetsGateway(sheets=metadata, values=values)
 
