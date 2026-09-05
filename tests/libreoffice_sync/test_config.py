@@ -20,10 +20,10 @@ def test_settings_require_google_https_webapp(monkeypatch):
         LocalSettings.from_env()
 
 
-def test_poll_default_is_20(monkeypatch):
+def test_poll_default_is_10(monkeypatch):
     base_env(monkeypatch)
     monkeypatch.delenv("ORVANI_STATUS_POLL_SECONDS", raising=False)
-    assert LocalSettings.from_env().poll_seconds == 20
+    assert LocalSettings.from_env().poll_seconds == 10
 
 
 def test_workbook_path_must_be_absolute(monkeypatch):

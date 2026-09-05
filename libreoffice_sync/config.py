@@ -17,7 +17,7 @@ class LocalSettings:
     webapp_url: str
     sync_secret: str
     workbook_path: Path
-    poll_seconds: int = 20
+    poll_seconds: int = 10
     uno_host: str = "127.0.0.1"
     uno_port: int = 2002
 
@@ -26,7 +26,7 @@ class LocalSettings:
         url = os.environ.get("ORVANI_WEBAPP_URL", "").strip()
         secret = os.environ.get("ORVANI_SYNC_SECRET", "").strip()
         raw_path = os.environ.get("ORVANI_WORKBOOK_PATH", "").strip()
-        raw_poll = os.environ.get("ORVANI_STATUS_POLL_SECONDS", "20").strip()
+        raw_poll = os.environ.get("ORVANI_STATUS_POLL_SECONDS", "10").strip()
         host = os.environ.get("ORVANI_UNO_HOST", "127.0.0.1").strip()
         raw_port = os.environ.get("ORVANI_UNO_PORT", "2002").strip()
 

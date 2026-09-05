@@ -72,3 +72,12 @@ def test_uno_launchers_ignore_activated_virtualenv_python():
     assert '"${SYSTEM_PYTHON}" -m venv --system-site-packages "${VENV}"' in installer
     assert 'SYSTEM_PYTHON="/usr/bin/python3"' in catalog
     assert '"${SYSTEM_PYTHON}" -c' in catalog
+
+def test_status_poll_default_is_10_in_install_templates():
+    installer = Path("scripts/install-orvani-sync.sh").read_text(encoding="utf-8")
+    example = Path(".env.example").read_text(encoding="utf-8")
+
+    assert "ORVANI_STATUS_POLL_SECONDS=10" in installer
+    assert "ORVANI_STATUS_POLL_SECONDS=20" not in installer
+    assert "ORVANI_STATUS_POLL_SECONDS=10" in example
+    assert "ORVANI_STATUS_POLL_SECONDS=20" not in example
