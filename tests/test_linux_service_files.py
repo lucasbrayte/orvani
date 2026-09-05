@@ -61,3 +61,14 @@ def test_installer_uses_system_uno_secure_env_and_catalog_entry():
     assert "Terminal=false" in desktop
     assert "Icon=libreoffice-calc" in desktop
     assert "ORVANI_SYNC_SECRET" not in desktop
+
+
+def test_uno_launchers_ignore_activated_virtualenv_python():
+    installer = Path("scripts/install-orvani-sync.sh").read_text(encoding="utf-8")
+    catalog = Path("scripts/orvani-catalog-launcher.sh").read_text(encoding="utf-8")
+
+    assert 'SYSTEM_PYTHON="/usr/bin/python3"' in installer
+    assert '"${SYSTEM_PYTHON}" -c \'import uno\'' in installer
+    assert '"${SYSTEM_PYTHON}" -m venv --system-site-packages "${VENV}"' in installer
+    assert 'SYSTEM_PYTHON="/usr/bin/python3"' in catalog
+    assert '"${SYSTEM_PYTHON}" -c' in catalog

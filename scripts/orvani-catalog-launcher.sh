@@ -3,6 +3,7 @@ set -euo pipefail
 
 PROFILE="${HOME}/.local/share/orvani-sync/libreoffice-profile"
 ENV_FILE="${HOME}/.config/orvani-sync/orvani.env"
+SYSTEM_PYTHON="/usr/bin/python3"
 
 if [[ ! -f "${ENV_FILE}" ]]; then
   echo "Configuração Orvani não encontrada: ${ENV_FILE}" >&2
@@ -17,7 +18,7 @@ set +a
 
 mkdir -p "${PROFILE}"
 PROFILE_URI="$(
-  python3 -c \
+  "${SYSTEM_PYTHON}" -c \
     'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve().as_uri())' \
     "${PROFILE}"
 )"

@@ -10,11 +10,12 @@ ENV_FILE="${CONFIG_DIR}/orvani.env"
 USER_BIN="${HOME}/.local/bin"
 SYSTEMD_DIR="${HOME}/.config/systemd/user"
 APPLICATIONS_DIR="${HOME}/.local/share/applications"
+SYSTEM_PYTHON="/usr/bin/python3"
 
 missing=0
 command -v libreoffice >/dev/null 2>&1 || missing=1
-command -v python3 >/dev/null 2>&1 || missing=1
-python3 -c 'import uno' >/dev/null 2>&1 || missing=1
+[[ -x "${SYSTEM_PYTHON}" ]] || missing=1
+"${SYSTEM_PYTHON}" -c 'import uno' >/dev/null 2>&1 || missing=1
 
 if [[ "${missing}" -ne 0 ]]; then
   echo "Dependências ausentes."
@@ -32,7 +33,7 @@ mkdir -p \
   "${APPLICATIONS_DIR}"
 
 if [[ ! -x "${VENV}/bin/python" ]]; then
-  python3 -m venv --system-site-packages "${VENV}"
+  "${SYSTEM_PYTHON}" -m venv --system-site-packages "${VENV}"
 fi
 
 "${VENV}/bin/pip" install -r "${ROOT}/requirements-libreoffice.txt"
@@ -67,7 +68,7 @@ EOF
 chmod 0644 "${APPLICATIONS_DIR}/orvani-catalog.desktop"
 
 if [[ ! -f "${ENV_FILE}" ]]; then
-  SECRET="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+  SECRET="$("${SYSTEM_PYTHON}" -c 'import secrets; print(secrets.token_hex(32))')"
   cat >"${ENV_FILE}" <<EOF
 ORVANI_WEBAPP_URL=
 ORVANI_SYNC_SECRET=${SECRET}
