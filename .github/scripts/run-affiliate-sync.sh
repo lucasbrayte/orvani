@@ -11,6 +11,17 @@ case "$mode" in
   validate)
     exec "$python_executable" -m automation.cli validate
     ;;
+  backfill-dry-run)
+    exec "$python_executable" -m automation.cli backfill-divulgation --dry-run
+    ;;
+  backfill)
+    if [[ "${ORVANI_CONFIRM_BACKFILL:-false}" != "true" ]]; then
+      printf 'backfill requires explicit ORVANI_CONFIRM_BACKFILL=true
+' >&2
+      exit 64
+    fi
+    exec "$python_executable" -m automation.cli backfill-divulgation
+    ;;
   setup-dry-run)
     exec "$python_executable" -m automation.cli setup-sheet --dry-run
     ;;

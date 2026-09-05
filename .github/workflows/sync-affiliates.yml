@@ -19,7 +19,14 @@ on:
           - setup-dry-run
           - pending
           - full
+          - backfill-dry-run
+          - backfill
           - setup
+      confirm_backfill:
+        description: Confirm the authorized legacy write to Divulgação
+        required: false
+        type: boolean
+        default: false
       confirm_setup:
         description: Confirm the authorized write to the Importações sheet
         required: false
@@ -57,5 +64,6 @@ jobs:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           ORVANI_IMPORT_WORKSHEET: ${{ vars.ORVANI_IMPORT_WORKSHEET }}
           ORVANI_PRODUCTS_WORKSHEET: ${{ vars.ORVANI_PRODUCTS_WORKSHEET }}
+          ORVANI_CONFIRM_BACKFILL: ${{ github.event_name == 'workflow_dispatch' && inputs.confirm_backfill || false }}
           ORVANI_CONFIRM_SETUP: ${{ github.event_name == 'workflow_dispatch' && inputs.confirm_setup || false }}
         run: .github/scripts/run-affiliate-sync.sh "$AFFILIATE_MODE"

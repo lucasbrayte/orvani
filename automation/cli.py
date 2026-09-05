@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import argparse
+from datetime import UTC, datetime
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 import sys
 from typing import Any, Protocol
 
-from .config import DIVULGATION_WORKSHEET, IMPORT_HEADERS, PARTNERS, PRODUCTS_HEADERS, PartnerConfig, Settings, normalize_unicode_text
+from .config import DIVULGATION_HEADERS, DIVULGATION_WORKSHEET, IMPORT_HEADERS, PARTNERS, PRODUCTS_HEADERS, PartnerConfig, Settings, normalize_unicode_text
 from .connectors.base import build_connector_registry
 from .http_client import SafeHttpClient
+from .divulgation_backfill import plan_divulgation_backfill
 from .models import AmbiguousProductMatchError, ConfigurationError, ImportRecord, ImportStatus, SheetSchemaError
-from .sheets import GoogleSheetsGateway, SheetsGateway, read_table, setup_import_sheet
+from .sheets import GoogleSheetsGateway, SheetsGateway, batch_write, ensure_divulgation_sheet, read_table, setup_import_sheet
 from .sync import SyncEngine, find_product_match, parse_product_rows, validate_import_row
 
 
@@ -48,6 +50,8 @@ def build_parser() -> argparse.ArgumentParser:
     sync = commands.add_parser("sync")
     sync.add_argument("--mode", choices=("pending", "full"), required=True)
     sync.add_argument("--dry-run", action="store_true")
+    backfill = commands.add_parser("backfill-divulgation")
+    backfill.add_argument("--dry-run", action="store_true")
     commands.add_parser("validate")
     return parser
 
@@ -94,6 +98,57 @@ def main(argv: Sequence[str] | None = None, cli_dependencies: CliDependencies | 
                 dry_run=arguments.dry_run,
             )
             print(f"setup-sheet: criado={int(plan.created)} alterações={len(plan.requests)} dry_run={int(arguments.dry_run)}")
+            return 0
+        if arguments.command == "backfill-divulgation":
+            created = ensure_divulgation_sheet(
+                dependencies.gateway,
+                DIVULGATION_WORKSHEET,
+                dry_run=arguments.dry_run,
+            )
+            imports = read_table(
+                dependencies.gateway,
+                dependencies.settings.import_worksheet,
+                headers=IMPORT_HEADERS,
+            )
+            products = parse_product_rows(
+                read_table(
+                    dependencies.gateway,
+                    dependencies.settings.products_worksheet,
+                    headers=PRODUCTS_HEADERS,
+                )
+            )
+            divulgation = (
+                ()
+                if created
+                else read_table(
+                    dependencies.gateway,
+                    DIVULGATION_WORKSHEET,
+                    headers=DIVULGATION_HEADERS,
+                )
+            )
+            report = plan_divulgation_backfill(
+                imports,
+                products,
+                divulgation,
+                created_at=datetime.now(UTC),
+                worksheet=DIVULGATION_WORKSHEET,
+            )
+            if report.updates and not arguments.dry_run:
+                batch_write(
+                    dependencies.gateway,
+                    report.updates,
+                    worksheet=DIVULGATION_WORKSHEET,
+                    headers=DIVULGATION_HEADERS,
+                )
+            print(
+                "backfill-divulgation: "
+                f"analisados={report.scanned} elegiveis={report.eligible} "
+                f"planejados={report.planned} ja_na_fila={report.already_queued} "
+                f"nao_elegiveis={report.not_eligible} "
+                f"sem_produto={report.missing_product} "
+                f"produto_inativo={report.inactive_product} "
+                f"invalidos={report.invalid} dry_run={int(arguments.dry_run)}"
+            )
             return 0
         if arguments.command == "sync":
             report = SyncEngine(
