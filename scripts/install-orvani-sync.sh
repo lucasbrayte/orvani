@@ -9,6 +9,7 @@ CONFIG_DIR="${HOME}/.config/orvani-sync"
 ENV_FILE="${CONFIG_DIR}/orvani.env"
 USER_BIN="${HOME}/.local/bin"
 SYSTEMD_DIR="${HOME}/.config/systemd/user"
+APPLICATIONS_DIR="${HOME}/.local/share/applications"
 
 missing=0
 command -v libreoffice >/dev/null 2>&1 || missing=1
@@ -22,7 +23,13 @@ if [[ "${missing}" -ne 0 ]]; then
   exit 1
 fi
 
-mkdir -p "${RUNTIME}" "${APP}" "${CONFIG_DIR}" "${USER_BIN}" "${SYSTEMD_DIR}"
+mkdir -p \
+  "${RUNTIME}" \
+  "${APP}" \
+  "${CONFIG_DIR}" \
+  "${USER_BIN}" \
+  "${SYSTEMD_DIR}" \
+  "${APPLICATIONS_DIR}"
 
 if [[ ! -x "${VENV}/bin/python" ]]; then
   python3 -m venv --system-site-packages "${VENV}"
@@ -37,9 +44,27 @@ install -m 0755 \
   "${ROOT}/scripts/orvani-sync-launcher.sh" \
   "${USER_BIN}/orvani-sync-launcher"
 
+install -m 0755 \
+  "${ROOT}/scripts/orvani-catalog-launcher.sh" \
+  "${USER_BIN}/orvani-catalog-launcher"
+
 install -m 0644 \
   "${ROOT}/systemd/orvani-sync.service" \
   "${SYSTEMD_DIR}/orvani-sync.service"
+
+cat >"${APPLICATIONS_DIR}/orvani-catalog.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Orvani Catálogo
+Comment=Abrir o catálogo Orvani com sincronização
+Exec=${USER_BIN}/orvani-catalog-launcher
+Icon=libreoffice-calc
+Terminal=false
+Categories=Office;Spreadsheet;
+StartupNotify=true
+EOF
+
+chmod 0644 "${APPLICATIONS_DIR}/orvani-catalog.desktop"
 
 if [[ ! -f "${ENV_FILE}" ]]; then
   SECRET="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
@@ -60,3 +85,4 @@ echo
 echo "Instalação local concluída, mas o serviço NÃO foi habilitado."
 echo "Configure agora: ${ENV_FILE}"
 echo "Use a mesma ORVANI_SYNC_SECRET na Script Property do Apps Script."
+echo "Abra o catálogo pelo aplicativo: Orvani Catálogo"
