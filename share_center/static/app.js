@@ -65,7 +65,25 @@ function fallbackCopy(value) {
   if (!copied) throw new Error("copy");
 }
 
-async function copyText(value, success) {
+function showCopySuccess(control) {
+  if (!control) return;
+
+  const original = control.dataset.originalLabel || control.textContent;
+  control.dataset.originalLabel = original;
+  control.textContent = "✓ Copiado!";
+  control.classList.remove("copy-success");
+  void control.offsetWidth;
+  control.classList.add("copy-success");
+  control.disabled = true;
+
+  window.setTimeout(() => {
+    control.textContent = control.dataset.originalLabel;
+    control.classList.remove("copy-success");
+    control.disabled = false;
+  }, 1600);
+}
+
+async function copyText(value, success, control = null) {
   try {
     if (navigator.clipboard && window.isSecureContext) {
       await navigator.clipboard.writeText(value);
@@ -73,6 +91,7 @@ async function copyText(value, success) {
       fallbackCopy(value);
     }
     setNotice(success, "success");
+    showCopySuccess(control);
   } catch {
     setNotice(
       "Não foi possível copiar automaticamente. Selecione e copie manualmente.",
@@ -145,9 +164,14 @@ function renderCard(item) {
 
   button(card, "whatsapp").href = "https://web.whatsapp.com/";
   button(card, "image").href = item.image;
-  button(card, "copy-publication").addEventListener(
+  const copyPublicationButton = button(card, "copy-publication");
+  copyPublicationButton.addEventListener(
     "click",
-    () => copyText(item.publication, "Publicação copiada."),
+    () => copyText(
+      item.publication,
+      "Publicação copiada.",
+      copyPublicationButton,
+    ),
   );
   button(card, "copy-link").addEventListener(
     "click",
