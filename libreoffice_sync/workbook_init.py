@@ -23,10 +23,11 @@ def _list_validation(range_obj, values: tuple[str, ...]) -> None:
     validation = range_obj.Validation
     try:
         import uno  # type: ignore
-        validation.Type = uno.getConstantByName(
-            "com.sun.star.sheet.ValidationType.LIST"
+        validation.Type = uno.Enum(
+            "com.sun.star.sheet.ValidationType",
+            "LIST",
         )
-    except Exception:
+    except (ImportError, AttributeError):
         validation.Type = "LIST"
     # Cada entrada precisa ser uma string explícita na fórmula.
     # Sem aspas, valores com espaço (ex.: Mercado Livre) podem ser

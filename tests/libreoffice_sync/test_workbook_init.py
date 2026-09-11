@@ -254,3 +254,58 @@ def test_price_format_uses_builtin_brl_currency_with_two_decimals(monkeypatch):
     assert sheet.range_calls == [(13, 1, 14, 1999)]
     assert sheet.price_range.NumberFormat == 913
     assert sheet.price_range.values == before
+
+
+def test_list_validation_uses_uno_enum_for_validation_type(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    import libreoffice_sync.workbook_init as workbook_init
+
+    calls = []
+
+    class FakeValidation:
+        Type = None
+        Formula1 = ""
+        ShowErrorMessage = False
+        ErrorMessage = ""
+
+    class FakeRange:
+        def __init__(self):
+            self._validation = FakeValidation()
+
+        @property
+        def Validation(self):
+            return self._validation
+
+        @Validation.setter
+        def Validation(self, value):
+            self._validation = value
+
+    fake_range = FakeRange()
+
+    fake_uno = SimpleNamespace(
+        Enum=lambda enum_name, member: calls.append(
+            (enum_name, member)
+        ) or ("ENUM", enum_name, member),
+        getConstantByName=lambda _name: (_ for _ in ()).throw(
+            AssertionError("getConstantByName não deve ser usado para enum")
+        ),
+    )
+
+    monkeypatch.setitem(sys.modules, "uno", fake_uno)
+
+    workbook_init._list_validation(
+        fake_range,
+        ("Mercado Livre", "Afiliado"),
+    )
+
+    assert calls == [
+        ("com.sun.star.sheet.ValidationType", "LIST"),
+    ]
+    assert fake_range.Validation.Type == (
+        "ENUM",
+        "com.sun.star.sheet.ValidationType",
+        "LIST",
+    )
+    assert fake_range.Validation.Formula1 == '"Mercado Livre";"Afiliado"'
