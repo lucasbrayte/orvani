@@ -1171,6 +1171,42 @@ class _BlockedMode:
     pass
 
 
+def _extract_contingencia_maxima_product_id(
+    value: Any,
+) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = urlsplit(value.strip())
+    except ValueError:
+        return None
+
+    if parsed.scheme.casefold() != "https":
+        return None
+
+    host = (parsed.hostname or "").lower().rstrip(".")
+    if not (
+        host == "contingenciamaxima.com.br"
+        or host.endswith(".contingenciamaxima.com.br")
+    ):
+        return None
+
+    parts = tuple(
+        part
+        for part in parsed.path.split("/")
+        if part
+    )
+    if len(parts) != 2 or parts[0].casefold() != "produto":
+        return None
+
+    try:
+        product_id = UUID(parts[1])
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+    return str(product_id)
+
+
 def _manual_external_id(
     record: ImportRecord,
     partner: str,
@@ -1178,6 +1214,7 @@ def _manual_external_id(
     affiliate_url: str,
 ) -> str:
     extractors = {
+        "contingencia_maxima": _extract_contingencia_maxima_product_id,
         "mercado_livre": extract_mercado_item_id,
         "shopee": extract_shopee_item_id,
         "shein": extract_shein_product_id,

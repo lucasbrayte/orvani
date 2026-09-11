@@ -190,3 +190,12 @@ def test_import_record_parses_manual_update_mode():
 
     assert planned is None
     assert record.update_mode is UpdateMode.MANUAL
+
+
+def test_contingencia_maxima_backend_partner_configuration_is_exact():
+    partner = PARTNERS["contingencia_maxima"]
+
+    assert partner.key == "contingencia_maxima"
+    assert partner.display_name == "Contingência Máxima"
+    assert partner.allowed_hosts == ("contingenciamaxima.com.br",)
+    assert partner.live_verified is False

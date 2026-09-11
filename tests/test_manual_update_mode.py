@@ -210,3 +210,135 @@ def test_manual_snapshot_rejects_invalid_coupon_expiry():
             ),
             NOW,
         )
+
+
+def test_contingencia_maxima_manual_snapshot_extracts_uuid_and_keeps_final_affiliate_url():
+    product_id = "9b597da1-2d3a-47e5-86c6-5852f2c68000"
+    product_url = (
+        "https://contingenciamaxima.com.br/produto/"
+        + product_id
+    )
+    affiliate_url = product_url + "?ref=lukn"
+    record = _manual_record(
+        automation_id="contingencia-row-2",
+        partner="Contingência Máxima",
+        product_type="Digital",
+        product_url=product_url,
+        affiliate_url=affiliate_url,
+        image_1="https://images.example/digital.jpg",
+    )
+
+    snapshot = sync._manual_import_snapshot(record, NOW)
+
+    assert snapshot.partner == "contingencia_maxima"
+    assert snapshot.external_id == product_id
+    assert snapshot.source_url == product_url
+    assert snapshot.affiliate_url == affiliate_url
+
+    values = sync.map_snapshot_to_product_values(
+        snapshot,
+        record,
+        existing=None,
+    )
+    assert values[2] == "contingencia_maxima"
+    assert values[11] == affiliate_url
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/produto/123",
+        "/produto/qualquer-coisa",
+        "/produto/9b597da1-2d3a-47e5-86c6-5852f2c6800",
+        "/produto/9b597da1-2d3a-47e5-86c6-5852f2c68000/extra",
+    ],
+)
+def test_contingencia_maxima_manual_snapshot_rejects_malformed_product_identity(path):
+    product_url = "https://contingenciamaxima.com.br" + path
+    record = _manual_record(
+        automation_id="contingencia-invalid-row",
+        partner="Contingência Máxima",
+        product_type="Digital",
+        product_url=product_url,
+        affiliate_url=product_url + "?ref=lukn",
+        image_1="https://images.example/digital.jpg",
+    )
+
+    with pytest.raises(
+        InvalidProductDataError,
+        match="identidade segura",
+    ):
+        sync._manual_import_snapshot(record, NOW)
+
+
+def test_contingencia_maxima_manual_mode_does_not_select_public_connector():
+    from conftest import FakeSheetsGateway, _quoted
+    from automation.config import IMPORT_HEADERS, PRODUCTS_HEADERS
+
+    product_id = "9b597da1-2d3a-47e5-86c6-5852f2c68000"
+    product_url = (
+        "https://contingenciamaxima.com.br/produto/"
+        + product_id
+    )
+    record = _manual_record(
+        automation_id="contingencia-no-connector",
+        partner="Contingência Máxima",
+        product_type="Digital",
+        product_url=product_url,
+        affiliate_url=product_url + "?ref=lukn",
+        image_1="https://images.example/digital.jpg",
+    )
+    calls = []
+
+    class Registry:
+        def select(self, url):
+            calls.append(url)
+            raise AssertionError("Modo Manual não deve selecionar connector.")
+
+    sheets = FakeSheetsGateway(
+        sheets=(
+            {
+                "properties": {
+                    "sheetId": 1,
+                    "title": "Importações",
+                    "sheetType": "GRID",
+                    "gridProperties": {
+                        "rowCount": 20,
+                        "columnCount": 32,
+                    },
+                }
+            },
+            {
+                "properties": {
+                    "sheetId": 2,
+                    "title": "Produtos",
+                    "sheetType": "GRID",
+                    "gridProperties": {
+                        "rowCount": 20,
+                        "columnCount": 20,
+                    },
+                }
+            },
+        ),
+        values={
+            _quoted("Importações", "A1:AF"): [
+                list(IMPORT_HEADERS),
+                list(sync._record_values(record)),
+            ],
+            _quoted("Produtos", "A4:T"): [
+                list(PRODUCTS_HEADERS),
+            ],
+        },
+    )
+
+    report = sync.SyncEngine(
+        sheets,
+        Registry(),
+        clock=lambda: NOW,
+    ).run("pending", dry_run=True)
+
+    assert report.final_status(2) is ImportStatus.PUBLICADO
+    assert calls == []
+    values = report.planned_product_updates[0].values[0]
+    assert values[2] == "contingencia_maxima"
+    assert values[11] == product_url + "?ref=lukn"
