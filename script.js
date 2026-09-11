@@ -6,6 +6,10 @@ const CONFIG = {
       label: "Amazon",
       hosts: ["amazon.com.br", "amzn.to", "link.amazon"],
     },
+    contingencia_maxima: {
+      label: "Contingência Máxima",
+      hosts: ["contingenciamaxima.com.br"],
+    },
     shopee: {
       label: "Shopee",
       hosts: ["shopee.com.br", "s.shopee.com.br"],
@@ -400,6 +404,7 @@ const CONFIG = {
     const value = searchable(raw).replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
     const aliases = {
       amazon: "amazon",
+      contingencia_maxima: "contingencia_maxima",
       shopee: "shopee",
       mercado_livre: "mercado_livre",
       aliexpress: "aliexpress",

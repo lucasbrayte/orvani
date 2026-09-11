@@ -588,6 +588,7 @@ test("footer exposes only the current public partner set without removing intern
     Object.keys(core.CONFIG.affiliatePartners),
     [
       "amazon",
+      "contingencia_maxima",
       "shopee",
       "mercado_livre",
       "aliexpress",
@@ -772,5 +773,69 @@ test("amazon is publicly exposed only after backend enablement", () => {
   assert.equal(
     core.validatePartnerUrl("https://amazon.com.br.evil.example/dp/B0D123ABCD", "amazon"),
     null,
+  );
+});
+
+
+test("registers Contingência Máxima with only its approved host", () => {
+  assert.equal(
+    core.partnerLabel("contingencia_maxima"),
+    "Contingência Máxima",
+  );
+  assert.deepEqual(
+    core.CONFIG.affiliatePartners.contingencia_maxima.hosts,
+    ["contingenciamaxima.com.br"],
+  );
+
+  assert.equal(
+    core.validatePartnerUrl(
+      "https://contingenciamaxima.com.br/produto/9b597da1-2d3a-47e5-86c6-5852f2c68000?ref=lukn",
+      "contingencia_maxima",
+    ),
+    "https://contingenciamaxima.com.br/produto/9b597da1-2d3a-47e5-86c6-5852f2c68000?ref=lukn",
+  );
+
+  assert.equal(
+    core.validatePartnerUrl(
+      "https://contingenciamaxima.com.br.evil.example/produto/123?ref=lukn",
+      "contingencia_maxima",
+    ),
+    null,
+  );
+});
+
+
+test("accepts Contingência Máxima rows from the current Produtos sheet contract", () => {
+  const cells = [
+    "Sim",
+    "Digital",
+    "Contingência Máxima",
+    "Games",
+    "Assinaturas",
+    "Produto digital",
+    "Descrição do produto digital.",
+    "89.90",
+    "",
+    "",
+    "",
+    "https://contingenciamaxima.com.br/produto/9b597da1-2d3a-47e5-86c6-5852f2c68000?ref=lukn",
+    "Ver oferta",
+    "",
+    "https://images.example.invalid/digital.jpg",
+    "",
+    "",
+    "",
+    "1",
+    "Não",
+  ];
+
+  const result = core.normalizeRows([currentHeaders, cells]);
+
+  assert.equal(result.rejected.length, 0);
+  assert.equal(result.products.length, 1);
+  assert.equal(result.products[0].partner, "contingencia_maxima");
+  assert.equal(
+    result.products[0].affiliateUrl,
+    "https://contingenciamaxima.com.br/produto/9b597da1-2d3a-47e5-86c6-5852f2c68000?ref=lukn",
   );
 });
