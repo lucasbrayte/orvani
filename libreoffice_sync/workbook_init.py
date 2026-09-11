@@ -58,6 +58,24 @@ def _apply_text_layout(sheet) -> None:
             except Exception:
                 pass
 
+    # No LibreOffice real, ajustar ~2.000 linhas uma a uma via UNO
+    # cria milhares de round-trips e pode bloquear a inicialização por
+    # muitos minutos. Prefira uma única operação sobre a coleção Rows
+    # do intervalo inteiro.
+    try:
+        data_rows = sheet.getCellRangeByPosition(
+            0,
+            _FIRST_DATA_ROW_INDEX,
+            0,
+            _LAST_DATA_ROW_INDEX,
+        ).Rows
+        data_rows.OptimalHeight = False
+        data_rows.Height = _DATA_ROW_HEIGHT
+        return
+    except Exception:
+        pass
+
+    # Fallback para fakes/implementações mínimas sem Rows no intervalo.
     if hasattr(sheet, "Rows"):
         for row_index in range(
             _FIRST_DATA_ROW_INDEX,

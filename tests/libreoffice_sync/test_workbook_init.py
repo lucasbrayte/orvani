@@ -309,3 +309,50 @@ def test_list_validation_uses_uno_enum_for_validation_type(monkeypatch):
         "LIST",
     )
     assert fake_range.Validation.Formula1 == '"Mercado Livre";"Afiliado"'
+
+
+def test_text_layout_sets_row_height_in_one_bulk_uno_operation():
+    import libreoffice_sync.workbook_init as workbook_init
+
+    class BulkRows:
+        def __init__(self):
+            self.Height = 0
+            self.OptimalHeight = True
+
+    class Range:
+        def __init__(self, with_rows=False):
+            self.IsTextWrapped = False
+            if with_rows:
+                self.Rows = BulkRows()
+
+    class SlowRows:
+        def __init__(self):
+            self.calls = []
+
+        def getByIndex(self, index):
+            self.calls.append(index)
+            raise AssertionError(
+                "não deve iterar linha por linha quando bulk Rows existe"
+            )
+
+    class Sheet:
+        def __init__(self):
+            self.ranges = {}
+            self.Rows = SlowRows()
+
+        def getCellRangeByPosition(self, c1, r1, c2, r2):
+            key = (c1, r1, c2, r2)
+            if key not in self.ranges:
+                self.ranges[key] = Range(
+                    with_rows=(key == (0, 1, 0, 1999))
+                )
+            return self.ranges[key]
+
+    sheet = Sheet()
+
+    workbook_init._apply_text_layout(sheet)
+
+    bulk = sheet.getCellRangeByPosition(0, 1, 0, 1999).Rows
+    assert bulk.Height == 700
+    assert bulk.OptimalHeight is False
+    assert sheet.Rows.calls == []
