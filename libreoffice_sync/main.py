@@ -79,13 +79,34 @@ def _wait_for_workbook(
         sleeper(2)
 
 
+def _wait_for_document_ready(
+    workbook,
+    *,
+    initializer=initialize_document,
+    sleeper=time.sleep,
+) -> None:
+    # PyUNO pode expor a URL do documento antes de os intervalos
+    # da planilha estarem operacionais. Repetimos somente o
+    # RuntimeException transitório do UNO.
+    print(
+        "Aguardando Orvani.ods ficar pronto para sincronização",
+        flush=True,
+    )
+    while True:
+        try:
+            initializer(workbook.document)
+            return
+        except Exception as exc:
+            if exc.__class__.__name__ != "RuntimeException":
+                raise
+            sleeper(0.5)
+
+
 def _run(settings: LocalSettings) -> int:
     workbook = _wait_for_uno(settings)
     _wait_for_workbook(workbook, settings.workbook_path)
 
-    # Reaplica o contrato visual na planilha existente:
-    # listas com Sim/Não e Automático/Manual/Bloqueado.
-    initialize_document(workbook.document)
+    _wait_for_document_ready(workbook)
 
     api = OrvaniApiClient(settings.webapp_url, settings.sync_secret)
     try:

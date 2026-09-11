@@ -64,3 +64,47 @@ def test_wait_for_workbook_retries_exact_expected_path():
 
     assert attempts == [path, path, path]
     assert sleeps == [2, 2]
+
+
+def test_wait_for_document_ready_retries_transient_uno_runtime_exception():
+    assert hasattr(main, "_wait_for_document_ready")
+
+    class RuntimeException(Exception):
+        pass
+
+    attempts = []
+    sleeps = []
+    workbook = SimpleNamespace(document=object())
+
+    def initializer(document):
+        assert document is workbook.document
+        attempts.append(document)
+        if len(attempts) < 3:
+            raise RuntimeException("documento ainda não pronto")
+
+    main._wait_for_document_ready(
+        workbook,
+        initializer=initializer,
+        sleeper=sleeps.append,
+    )
+
+    assert len(attempts) == 3
+    assert sleeps == [0.5, 0.5]
+
+
+def test_wait_for_document_ready_does_not_hide_programming_errors():
+    workbook = SimpleNamespace(document=object())
+
+    def initializer(_document):
+        raise ValueError("erro real")
+
+    try:
+        main._wait_for_document_ready(
+            workbook,
+            initializer=initializer,
+            sleeper=lambda _seconds: None,
+        )
+    except ValueError as exc:
+        assert str(exc) == "erro real"
+    else:
+        raise AssertionError("ValueError deveria ser propagado")
