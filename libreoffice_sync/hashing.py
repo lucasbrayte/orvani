@@ -4,11 +4,11 @@ import hashlib
 import json
 
 from .models import CatalogRow
-from .normalization import normalize_catalog_row
+from .preparation import prepare_catalog_row
 
 
 def editable_payload(row: CatalogRow) -> dict[str, object]:
-    row = normalize_catalog_row(row)
+    row = prepare_catalog_row(row)
 
     payload: dict[str, object] = {
         "ID Automação": row.automation_id,

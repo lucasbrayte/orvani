@@ -67,3 +67,35 @@ def test_split_mercado_dropdown_value_is_repaired_from_links(valid_row):
     payload = editable_payload(row)
 
     assert payload["Plataforma"] == "Mercado Livre"
+
+
+def test_payload_uses_composed_affiliate_link_for_query_merge_partner(valid_row):
+    row = replace(
+        valid_row,
+        partner="Contingência Máxima",
+        product_type="Digital",
+        product_url="https://contingenciamaxima.com.br/produto/123",
+        affiliate_url="https://contingenciamaxima.com.br?ref=lukn",
+    )
+
+    payload = editable_payload(row)
+
+    assert payload["Link do Produto"].endswith("/produto/123")
+    assert payload["Link de Afiliado"].endswith("/produto/123?ref=lukn")
+
+
+def test_hash_changes_when_affiliate_tracking_parameter_changes(valid_row):
+    base = replace(
+        valid_row,
+        partner="Contingência Máxima",
+        product_type="Digital",
+        product_url="https://contingenciamaxima.com.br/produto/123",
+        affiliate_url="https://contingenciamaxima.com.br?ref=lukn",
+    )
+
+    assert row_hash(base) != row_hash(
+        replace(
+            base,
+            affiliate_url="https://contingenciamaxima.com.br?ref=outro",
+        )
+    )

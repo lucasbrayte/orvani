@@ -3,8 +3,9 @@ from __future__ import annotations
 from decimal import Decimal
 from urllib.parse import urlsplit
 
+from .affiliate_urls import AffiliateUrlError
 from .models import CatalogRow
-from .normalization import normalize_catalog_row
+from .preparation import prepare_catalog_row
 
 
 class LocalValidationError(ValueError):
@@ -14,7 +15,7 @@ class LocalValidationError(ValueError):
 YES_NO = {"Sim", "Não"}
 UPDATE_MODES = {"Automático", "Manual", "Bloqueado"}
 PRODUCT_TYPES = {"Físico", "Digital"}
-PARTNERS = {"Mercado Livre", "Shopee", "SHEIN", "Amazon"}
+PARTNERS = {"Mercado Livre", "Shopee", "SHEIN", "Amazon", "Contingência Máxima"}
 
 
 def _https(value: str, field: str) -> None:
@@ -32,8 +33,11 @@ def _positive(value: Decimal | None, field: str) -> None:
         )
 
 
-def validate_catalog_row(row: CatalogRow) -> None:
-    row = normalize_catalog_row(row)
+def validate_catalog_row(row: CatalogRow) -> CatalogRow:
+    try:
+        row = prepare_catalog_row(row)
+    except AffiliateUrlError as exc:
+        raise LocalValidationError(str(exc)) from None
 
     for field_name, value in (
         ("Ativo", row.active),
@@ -85,3 +89,5 @@ def validate_catalog_row(row: CatalogRow) -> None:
         raise LocalValidationError(
             "Preço Anterior deve ser maior que Preço Atual."
         )
+
+    return row

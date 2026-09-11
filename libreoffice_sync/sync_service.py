@@ -36,19 +36,18 @@ class SyncService:
         metadata = {}
 
         for row in rows:
-            current_hash = row_hash(row)
-            self.workbook.write_row_hash(row.row_number, current_hash)
-
             try:
-                validate_catalog_row(row)
+                prepared = validate_catalog_row(row)
             except LocalValidationError as exc:
                 self.workbook.write_local_error(row.row_number, str(exc))
                 continue
 
+            current_hash = row_hash(prepared)
+            self.workbook.write_row_hash(row.row_number, current_hash)
             self.workbook.clear_local_error(row.row_number)
 
             if current_hash != row.acknowledged_hash:
-                pending.append(editable_payload(row))
+                pending.append(editable_payload(prepared))
                 metadata[row.automation_id] = (row.row_number, current_hash)
 
         return pending, metadata

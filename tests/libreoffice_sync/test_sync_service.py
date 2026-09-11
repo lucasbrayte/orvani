@@ -153,3 +153,24 @@ def test_status_poll_runs_once_per_interval(valid_row):
 
     assert len(api.status_calls) == 2
     assert len(wb.statuses) == 2
+
+
+def test_invalid_query_merge_stays_local_and_is_not_uploaded(valid_row):
+    row = replace(
+        valid_row,
+        partner="Contingência Máxima",
+        product_type="Digital",
+        product_url="https://contingenciamaxima.com.br/produto/123",
+        affiliate_url="https://outra-loja.example?ref=lukn",
+        acknowledged_hash="old",
+    )
+
+    wb = FakeWorkbook([row])
+    api = FakeApi()
+    service = SyncService(wb, api)
+    wb.saved = True
+
+    service.run_once(1.0)
+
+    assert api.upserts == []
+    assert "incompatíveis" in wb.errors[2]
