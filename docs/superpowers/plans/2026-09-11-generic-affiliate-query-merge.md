@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a reusable `affiliate_query_merge` strategy so Orvani can combine a product URL with a single affiliate base URL, starting with Contingência Máxima, while preserving the existing `LibreOffice -> Importações -> Produtos -> site` flow.
+**Goal:** Add a reusable `affiliate_query_merge` strategy so Orvani can combine a product URL with a single affiliate base URL, starting with Afiliado, while preserving the existing `LibreOffice -> Importações -> Produtos -> site` flow.
 
-**Architecture:** Add a small pure URL-composition module for the LibreOffice client, route normalization/validation/hash/payload through a prepared-row function, register Contingência Máxima consistently in LibreOffice, backend automation, and frontend allowlists, and keep existing partner behavior unchanged. The final affiliate URL is composed once before upload; `Importações`, `Produtos`, Divulgação, and the site consume that persisted final URL.
+**Architecture:** Add a small pure URL-composition module for the LibreOffice client, route normalization/validation/hash/payload through a prepared-row function, register Afiliado consistently in LibreOffice, backend automation, and frontend allowlists, and keep existing partner behavior unchanged. The final affiliate URL is composed once before upload; `Importações`, `Produtos`, Divulgação, and the site consume that persisted final URL.
 
 **Tech Stack:** Python 3, pytest, LibreOffice UNO/PyUNO, Google Apps Script JavaScript, Node.js `node:test`, existing Orvani automation modules, Git worktrees.
 
@@ -56,11 +56,11 @@
 ### Existing files to modify
 
 - `libreoffice_sync/normalization.py`
-  - Recognize/canonicalize `Contingência Máxima`.
+  - Recognize/canonicalize `Afiliado`.
   - Infer the partner from `contingenciamaxima.com.br`.
 
 - `libreoffice_sync/validation.py`
-  - Add `Contingência Máxima` to allowed local partners.
+  - Add `Afiliado` to allowed local partners.
   - Validate the prepared effective row.
   - Convert `AffiliateUrlError` into `LocalValidationError`.
 
@@ -72,17 +72,17 @@
   - Keep upload metadata/hash tied to the effective row.
 
 - `libreoffice_sync/workbook_init.py`
-  - Add `Contingência Máxima` to the Plataforma dropdown.
+  - Add `Afiliado` to the Plataforma dropdown.
 
 - `automation/config.py`
-  - Register `contingencia_maxima` with display label and allowed host.
+  - Register `afiliado` with display label and allowed host.
 
 - `automation/sync.py`
-  - Ensure canonical partner-key handling accepts `Contingência Máxima`.
+  - Ensure canonical partner-key handling accepts `Afiliado`.
   - Preserve Manual-mode publication and partner-link validation for the new partner.
 
 - `script.js`
-  - Add `contingencia_maxima` to `CONFIG.affiliatePartners` with only `contingenciamaxima.com.br`.
+  - Add `afiliado` to `CONFIG.affiliatePartners` with only `contingenciamaxima.com.br`.
 
 ### Existing tests to modify
 
@@ -121,7 +121,7 @@ from libreoffice_sync.affiliate_urls import (
 )
 
 
-PARTNER = "Contingência Máxima"
+PARTNER = "Afiliado"
 
 
 def test_query_merge_adds_affiliate_parameter_to_product_path():
@@ -234,7 +234,7 @@ class AffiliateUrlError(ValueError):
 
 
 QUERY_MERGE_PARTNERS = {
-    "Contingência Máxima": ("contingenciamaxima.com.br",),
+    "Afiliado": ("contingenciamaxima.com.br",),
 }
 
 
@@ -358,7 +358,7 @@ from dataclasses import replace
 from libreoffice_sync.preparation import prepare_catalog_row
 
 
-def test_contingencia_maxima_is_inferred_and_affiliate_link_is_composed(valid_row):
+def test_afiliado_is_inferred_and_affiliate_link_is_composed(valid_row):
     raw = replace(
         valid_row,
         partner="",
@@ -372,7 +372,7 @@ def test_contingencia_maxima_is_inferred_and_affiliate_link_is_composed(valid_ro
 
     prepared = prepare_catalog_row(raw)
 
-    assert prepared.partner == "Contingência Máxima"
+    assert prepared.partner == "Afiliado"
     assert prepared.product_url == raw.product_url
     assert prepared.affiliate_url == (
         raw.product_url + "?ref=lukn"
@@ -394,7 +394,7 @@ Extend `tests/libreoffice_sync/test_hashing.py`:
 def test_payload_uses_composed_affiliate_link_for_query_merge_partner(valid_row):
     row = replace(
         valid_row,
-        partner="Contingência Máxima",
+        partner="Afiliado",
         product_type="Digital",
         product_url="https://contingenciamaxima.com.br/produto/123",
         affiliate_url="https://contingenciamaxima.com.br?ref=lukn",
@@ -411,7 +411,7 @@ def test_payload_uses_composed_affiliate_link_for_query_merge_partner(valid_row)
 def test_hash_changes_when_affiliate_tracking_parameter_changes(valid_row):
     base = replace(
         valid_row,
-        partner="Contingência Máxima",
+        partner="Afiliado",
         product_type="Digital",
         product_url="https://contingenciamaxima.com.br/produto/123",
         affiliate_url="https://contingenciamaxima.com.br?ref=lukn",
@@ -433,7 +433,7 @@ Extend `tests/libreoffice_sync/test_validation.py`:
 def test_query_merge_domain_mismatch_is_local_validation_error(valid_row):
     row = replace(
         valid_row,
-        partner="Contingência Máxima",
+        partner="Afiliado",
         product_type="Digital",
         product_url="https://contingenciamaxima.com.br/produto/123",
         affiliate_url="https://outra-loja.example?ref=lukn",
@@ -454,9 +454,9 @@ Run:
   tests/libreoffice_sync/test_validation.py
 ```
 
-Expected: failures because Contingência Máxima/preparation do not exist.
+Expected: failures because Afiliado/preparation do not exist.
 
-- [ ] **Step 3: Extend normalization for Contingência Máxima**
+- [ ] **Step 3: Extend normalization for Afiliado**
 
 In `libreoffice_sync/normalization.py`:
 
@@ -464,13 +464,13 @@ Add host inference:
 
 ```python
 if _host_matches(host, "contingenciamaxima.com.br"):
-    return "Contingência Máxima"
+    return "Afiliado"
 ```
 
 Add canonical aliases:
 
 ```python
-"contingencia maxima": "Contingência Máxima",
+"contingencia maxima": "Afiliado",
 ```
 
 Extend the allowed local canonical partner set:
@@ -481,7 +481,7 @@ allowed_partners = {
     "Shopee",
     "SHEIN",
     "Amazon",
-    "Contingência Máxima",
+    "Afiliado",
 }
 ```
 
@@ -531,7 +531,7 @@ PARTNERS = {
     "Shopee",
     "SHEIN",
     "Amazon",
-    "Contingência Máxima",
+    "Afiliado",
 }
 ```
 
@@ -598,7 +598,7 @@ Add to `tests/libreoffice_sync/test_sync_service.py` a regression such as:
 def test_invalid_query_merge_stays_local_and_is_not_uploaded(valid_row):
     row = replace(
         valid_row,
-        partner="Contingência Máxima",
+        partner="Afiliado",
         product_type="Digital",
         product_url="https://contingenciamaxima.com.br/produto/123",
         affiliate_url="https://outra-loja.example?ref=lukn",
@@ -647,7 +647,7 @@ git commit -m "feat: prepare effective affiliate links before sync"
 
 ---
 
-### Task 3: Add Contingência Máxima to the LibreOffice UI contract
+### Task 3: Add Afiliado to the LibreOffice UI contract
 
 **Files:**
 - Modify: `libreoffice_sync/workbook_init.py`
@@ -655,7 +655,7 @@ git commit -m "feat: prepare effective affiliate links before sync"
 
 **Interfaces:**
 - Consumes: existing Calc `Plataforma` validation range.
-- Produces: dropdown containing exactly the existing partners plus `Contingência Máxima`.
+- Produces: dropdown containing exactly the existing partners plus `Afiliado`.
 
 - [ ] **Step 1: Update the existing dropdown assertion first**
 
@@ -664,7 +664,7 @@ Change the partner assertion in `tests/libreoffice_sync/test_workbook_init.py` t
 ```python
 assert partner.Formula1 == (
     '"Mercado Livre";"Shopee";"SHEIN";"Amazon";'
-    '"Contingência Máxima"'
+    '"Afiliado"'
 )
 ```
 
@@ -689,7 +689,7 @@ In `libreoffice_sync/workbook_init.py`, change only the partner list:
     "Shopee",
     "SHEIN",
     "Amazon",
-    "Contingência Máxima",
+    "Afiliado",
 ),
 ```
 
@@ -717,14 +717,14 @@ git commit -m "feat: add contingencia maxima to catalog partners"
 - Modify: `automation/config.py`
 - Modify: `automation/sync.py` only if the current canonical-key mapping does not derive the key automatically
 - Modify/Test: the existing automation partner/config tests discovered during execution
-- Add a focused test file if no existing focused home exists: `tests/test_contingencia_maxima_partner.py`
+- Add a focused test file if no existing focused home exists: `tests/test_afiliado_partner.py`
 
 **Interfaces:**
 - Consumes: persisted `Importações` row where:
-  - `Plataforma = "Contingência Máxima"`
+  - `Plataforma = "Afiliado"`
   - `Link de Afiliado = "https://contingenciamaxima.com.br/produto/...?..."`
 - Produces:
-  - canonical backend key `contingencia_maxima`
+  - canonical backend key `afiliado`
   - allowed link host `contingenciamaxima.com.br`
   - Manual-mode publication into `Produtos` using the existing 20-column contract.
 
@@ -736,10 +736,10 @@ Create or extend tests with these exact behavioral checks:
 from automation.config import PARTNERS
 
 
-def test_contingencia_maxima_partner_is_registered():
-    partner = PARTNERS["contingencia_maxima"]
+def test_afiliado_partner_is_registered():
+    partner = PARTNERS["afiliado"]
 
-    assert partner.display_name == "Contingência Máxima"
+    assert partner.display_name == "Afiliado"
     assert partner.allowed_hosts == ("contingenciamaxima.com.br",)
     assert partner.live_verified is False
 ```
@@ -747,24 +747,24 @@ def test_contingencia_maxima_partner_is_registered():
 Add a publication-level test using the existing `ImportRecord`/`ProductSnapshot` factories:
 
 ```python
-def test_manual_contingencia_maxima_product_keeps_final_affiliate_url(...):
+def test_manual_afiliado_product_keeps_final_affiliate_url(...):
     affiliate = (
         "https://contingenciamaxima.com.br/produto/123?ref=lukn"
     )
 
     # Build a Manual ImportRecord and ProductSnapshot using existing
-    # test factories, with partner "Contingência Máxima" and affiliate.
+    # test factories, with partner "Afiliado" and affiliate.
     values = map_snapshot_to_product_values(snapshot, record, None)
 
-    assert values[2] == "Contingência Máxima"
+    assert values[2] == "Afiliado"
     assert values[11] == affiliate
 ```
 
 If the backend has an existing canonical-key test, add:
 
 ```python
-assert _canonical_partner_key("Contingência Máxima") == (
-    "contingencia_maxima"
+assert _canonical_partner_key("Afiliado") == (
+    "afiliado"
 )
 ```
 
@@ -774,16 +774,16 @@ Prefer testing through a public behavior if `_canonical_partner_key` is intentio
 
 Run the narrowest pytest command for the chosen files.
 
-Expected: missing `contingencia_maxima` registration and/or unsupported canonical partner.
+Expected: missing `afiliado` registration and/or unsupported canonical partner.
 
 - [ ] **Step 3: Register the partner in `automation/config.py`**
 
 Add:
 
 ```python
-"contingencia_maxima": PartnerConfig(
-    "contingencia_maxima",
-    "Contingência Máxima",
+"afiliado": PartnerConfig(
+    "afiliado",
+    "Afiliado",
     ("contingenciamaxima.com.br",),
     False,
 ),
@@ -796,13 +796,13 @@ Do not give the backend an automatic scraper/fetch connector for this partner.
 If `_canonical_partner_key()` currently uses an explicit alias table, add:
 
 ```python
-"contingência máxima": "contingencia_maxima",
-"contingencia maxima": "contingencia_maxima",
+"contingência máxima": "afiliado",
+"contingencia maxima": "afiliado",
 ```
 
 If it already derives the key from `PARTNERS` display names, make no production change to `automation/sync.py`.
 
-Do not add `contingencia_maxima` to any automatic connector dispatch table.
+Do not add `afiliado` to any automatic connector dispatch table.
 
 - [ ] **Step 5: Run backend focused tests and verify GREEN**
 
@@ -836,14 +836,14 @@ Before committing, inspect `git diff --cached --name-only` and unstage unrelated
 
 ---
 
-### Task 5: Authorize Contingência Máxima in the public catalog frontend
+### Task 5: Authorize Afiliado in the public catalog frontend
 
 **Files:**
 - Modify: `script.js`
 - Modify: `tests/js/catalog.test.js`
 
 **Interfaces:**
-- Consumes: `Produtos` CSV row containing `Plataforma = Contingência Máxima` and an HTTPS affiliate URL on `contingenciamaxima.com.br`.
+- Consumes: `Produtos` CSV row containing `Plataforma = Afiliado` and an HTTPS affiliate URL on `contingenciamaxima.com.br`.
 - Produces: normalized product whose external CTA safely links to the final affiliate URL with the existing sponsored/nofollow/noopener/noreferrer attributes.
 
 - [ ] **Step 1: Extend the frontend partner-registry test first**
@@ -851,19 +851,19 @@ Before committing, inspect `git diff --cached --name-only` and unstage unrelated
 In `tests/js/catalog.test.js`, update the test that asserts `Object.keys(core.CONFIG.affiliatePartners)` to include:
 
 ```javascript
-"contingencia_maxima"
+"afiliado"
 ```
 
 Add:
 
 ```javascript
-test("registers Contingência Máxima with only its approved host", () => {
+test("registers Afiliado with only its approved host", () => {
   assert.equal(
-    core.partnerLabel("contingencia_maxima"),
-    "Contingência Máxima",
+    core.partnerLabel("afiliado"),
+    "Afiliado",
   );
   assert.deepEqual(
-    core.CONFIG.affiliatePartners.contingencia_maxima.hosts,
+    core.CONFIG.affiliatePartners.afiliado.hosts,
     ["contingenciamaxima.com.br"],
   );
 });
@@ -872,12 +872,12 @@ test("registers Contingência Máxima with only its approved host", () => {
 Add a safe external-link check:
 
 ```javascript
-test("accepts Contingência Máxima final affiliate product URLs", () => {
+test("accepts Afiliado final affiliate product URLs", () => {
   const attributes = core.externalLinkAttributes({
     affiliateUrl:
       "https://contingenciamaxima.com.br/produto/123?ref=lukn",
     name: "Produto digital",
-    partner: "contingencia_maxima",
+    partner: "afiliado",
   });
 
   assert.equal(
@@ -906,8 +906,8 @@ Expected: failures for missing frontend partner.
 In `script.js`, add alongside the existing partners:
 
 ```javascript
-contingencia_maxima: {
-  label: "Contingência Máxima",
+afiliado: {
+  label: "Afiliado",
   hosts: ["contingenciamaxima.com.br"],
 },
 ```
@@ -1028,7 +1028,7 @@ git commit -m "docs: add affiliate query merge design and plan"
 
 **Interfaces:**
 - Consumes: completed feature branch with all automated tests GREEN.
-- Produces: evidence that a real Contingência Máxima product travels from Calc to `Importações` and then `Produtos` with the final affiliate URL.
+- Produces: evidence that a real Afiliado product travels from Calc to `Importações` and then `Produtos` with the final affiliate URL.
 
 - [ ] **Step 1: Re-run fresh verification immediately before runtime installation**
 
@@ -1065,7 +1065,7 @@ active
 enabled
 ```
 
-- [ ] **Step 4: Enter one real Contingência Máxima test product in Orvani.ods**
+- [ ] **Step 4: Enter one real Afiliado test product in Orvani.ods**
 
 Use:
 
@@ -1074,7 +1074,7 @@ Tipo:
 Digital
 
 Plataforma:
-Contingência Máxima
+Afiliado
 
 Link Produto:
 https://contingenciamaxima.com.br/produto/9b597da1-2d3a-47e5-86c6-5852f2c68000
@@ -1102,7 +1102,7 @@ Link de Afiliado =
 https://contingenciamaxima.com.br/produto/9b597da1-2d3a-47e5-86c6-5852f2c68000?ref=lukn
 
 Plataforma =
-Contingência Máxima
+Afiliado
 ```
 
 The Calc `Link Afiliado` cell itself must still show the original base URL:
@@ -1118,7 +1118,7 @@ Wait for the existing pending workflow.
 Verify the corresponding `Produtos` row contains:
 
 ```text
-Plataforma = Contingência Máxima
+Plataforma = Afiliado
 Tipo = Digital
 Link de Afiliado =
 https://contingenciamaxima.com.br/produto/9b597da1-2d3a-47e5-86c6-5852f2c68000?ref=lukn
@@ -1256,4 +1256,4 @@ active
 enabled
 ```
 
-Open Orvani Catálogo once and verify the Plataforma dropdown still includes `Contingência Máxima`.
+Open Orvani Catálogo once and verify the Plataforma dropdown still includes `Afiliado`.

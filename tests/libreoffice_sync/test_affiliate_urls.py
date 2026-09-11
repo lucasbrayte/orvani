@@ -6,7 +6,7 @@ from libreoffice_sync.affiliate_urls import (
 )
 
 
-PARTNER = "Contingência Máxima"
+PARTNER = "Afiliado"
 
 
 def test_query_merge_adds_affiliate_parameter_to_product_path():

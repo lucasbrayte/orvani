@@ -15,7 +15,7 @@ class LocalValidationError(ValueError):
 YES_NO = {"Sim", "Não"}
 UPDATE_MODES = {"Automático", "Manual", "Bloqueado"}
 PRODUCT_TYPES = {"Físico", "Digital"}
-PARTNERS = {"Mercado Livre", "Shopee", "SHEIN", "Amazon", "Contingência Máxima"}
+PARTNERS = {"Mercado Livre", "Shopee", "SHEIN", "Amazon", "Afiliado"}
 
 
 def _https(value: str, field: str) -> None:

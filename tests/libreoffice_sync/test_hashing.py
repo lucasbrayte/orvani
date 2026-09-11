@@ -72,7 +72,7 @@ def test_split_mercado_dropdown_value_is_repaired_from_links(valid_row):
 def test_payload_uses_composed_affiliate_link_for_query_merge_partner(valid_row):
     row = replace(
         valid_row,
-        partner="Contingência Máxima",
+        partner="Afiliado",
         product_type="Digital",
         product_url="https://contingenciamaxima.com.br/produto/123",
         affiliate_url="https://contingenciamaxima.com.br?ref=lukn",
@@ -87,7 +87,7 @@ def test_payload_uses_composed_affiliate_link_for_query_merge_partner(valid_row)
 def test_hash_changes_when_affiliate_tracking_parameter_changes(valid_row):
     base = replace(
         valid_row,
-        partner="Contingência Máxima",
+        partner="Afiliado",
         product_type="Digital",
         product_url="https://contingenciamaxima.com.br/produto/123",
         affiliate_url="https://contingenciamaxima.com.br?ref=lukn",

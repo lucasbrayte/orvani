@@ -104,8 +104,8 @@ affiliate_strategy
 O parceiro inicial será:
 
 ```text
-key: contingencia_maxima
-display_name: Contingência Máxima
+key: afiliado
+display_name: Afiliado
 allowed_hosts:
   - contingenciamaxima.com.br
 affiliate_strategy: affiliate_query_merge
@@ -227,7 +227,7 @@ O valor digitado no Calc não será sobrescrito pela automação.
 O dropdown `Plataforma` passará a incluir:
 
 ```text
-Contingência Máxima
+Afiliado
 ```
 
 A inferência por URL reconhecerá `contingenciamaxima.com.br`.
@@ -256,7 +256,7 @@ Link de Afiliado
 Plataforma
 ```
 
-Para `Contingência Máxima`, `Link de Afiliado` já chegará composto pelo cliente local.
+Para `Afiliado`, `Link de Afiliado` já chegará composto pelo cliente local.
 
 A aba `Importações` armazenará o link afiliado efetivo.
 
@@ -264,7 +264,7 @@ O mecanismo existente de `ID Automação`, upsert e deduplicação continuará s
 
 ## 12. Integração com publicação `Importações -> Produtos`
 
-O registro de parceiros da automação será ampliado com `contingencia_maxima`.
+O registro de parceiros da automação será ampliado com `afiliado`.
 
 Para produtos digitais cadastrados manualmente, o fluxo deverá preservar os metadados fornecidos pelo usuário, seguindo o comportamento de `Modo de Atualização = Manual`.
 
@@ -274,7 +274,7 @@ A aba `Produtos` continuará recebendo o link afiliado final na coluna existente
 
 ## 13. Integração com site e Divulgação
 
-O frontend deverá reconhecer `Contingência Máxima` como parceiro autorizado para links externos.
+O frontend deverá reconhecer `Afiliado` como parceiro autorizado para links externos.
 
 A lista de hosts autorizados do site deverá incluir somente os hosts explicitamente cadastrados para o parceiro.
 
@@ -363,7 +363,7 @@ A funcionalidade estará concluída quando for possível:
 2. criar um produto digital;
 3. informar o link direto do produto;
 4. informar `https://contingenciamaxima.com.br?ref=lukn` em `Link Afiliado`;
-5. selecionar ou inferir `Contingência Máxima`;
+5. selecionar ou inferir `Afiliado`;
 6. salvar;
 7. observar em `Importações` o link direto composto com `?ref=lukn`;
 8. permitir que o fluxo existente publique o registro em `Produtos`;
@@ -379,7 +379,7 @@ Ordem de rollout:
 1. testes RED da composição;
 2. componente de composição;
 3. integração no pipeline local;
-4. registro de `Contingência Máxima` no LibreOffice;
+4. registro de `Afiliado` no LibreOffice;
 5. registro no backend de publicação;
 6. registro no frontend;
 7. suíte de regressão;

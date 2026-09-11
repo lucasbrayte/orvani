@@ -167,7 +167,7 @@ def test_initialize_document_applies_full_catalog_ui_contract():
     partner = sheet.getCellRangeByPosition(7, 1, 7, 1999).Validation
     assert partner.Formula1 == (
         '"Mercado Livre";"Shopee";"SHEIN";"Amazon";'
-        '"Contingência Máxima"'
+        '"Afiliado"'
     )
 
     assert sheet.Columns.getByIndex(8).Width > 1000

@@ -59,7 +59,7 @@ def infer_partner(*urls: str) -> str:
         ):
             return "Amazon"
         if _host_matches(host, "contingenciamaxima.com.br"):
-            return "Contingência Máxima"
+            return "Afiliado"
     return ""
 
 
@@ -79,7 +79,7 @@ def normalize_catalog_row(row: CatalogRow) -> CatalogRow:
         "shopee": "Shopee",
         "shein": "SHEIN",
         "amazon": "Amazon",
-        "contingencia maxima": "Contingência Máxima",
+        "contingencia maxima": "Afiliado",
     }
     product_types = {
         "fisico": "Físico",
@@ -92,7 +92,7 @@ def normalize_catalog_row(row: CatalogRow) -> CatalogRow:
         "Shopee",
         "SHEIN",
         "Amazon",
-        "Contingência Máxima",
+        "Afiliado",
     }
     if partner not in allowed_partners:
         inferred = infer_partner(row.product_url, row.affiliate_url)

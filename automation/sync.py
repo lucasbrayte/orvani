@@ -1214,7 +1214,7 @@ def _manual_external_id(
     affiliate_url: str,
 ) -> str:
     extractors = {
-        "contingencia_maxima": _extract_contingencia_maxima_product_id,
+        "afiliado": _extract_contingencia_maxima_product_id,
         "mercado_livre": extract_mercado_item_id,
         "shopee": extract_shopee_item_id,
         "shein": extract_shein_product_id,

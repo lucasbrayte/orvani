@@ -113,7 +113,7 @@ def configure_catalog_sheet(sheet) -> None:
                 "Shopee",
                 "SHEIN",
                 "Amazon",
-                "Contingência Máxima",
+                "Afiliado",
             ),
         )
         _list_validation(

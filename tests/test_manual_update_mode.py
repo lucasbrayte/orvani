@@ -212,7 +212,7 @@ def test_manual_snapshot_rejects_invalid_coupon_expiry():
         )
 
 
-def test_contingencia_maxima_manual_snapshot_extracts_uuid_and_keeps_final_affiliate_url():
+def test_afiliado_manual_snapshot_extracts_uuid_and_keeps_final_affiliate_url():
     product_id = "9b597da1-2d3a-47e5-86c6-5852f2c68000"
     product_url = (
         "https://contingenciamaxima.com.br/produto/"
@@ -221,7 +221,7 @@ def test_contingencia_maxima_manual_snapshot_extracts_uuid_and_keeps_final_affil
     affiliate_url = product_url + "?ref=lukn"
     record = _manual_record(
         automation_id="contingencia-row-2",
-        partner="Contingência Máxima",
+        partner="Afiliado",
         product_type="Digital",
         product_url=product_url,
         affiliate_url=affiliate_url,
@@ -230,7 +230,7 @@ def test_contingencia_maxima_manual_snapshot_extracts_uuid_and_keeps_final_affil
 
     snapshot = sync._manual_import_snapshot(record, NOW)
 
-    assert snapshot.partner == "contingencia_maxima"
+    assert snapshot.partner == "afiliado"
     assert snapshot.external_id == product_id
     assert snapshot.source_url == product_url
     assert snapshot.affiliate_url == affiliate_url
@@ -240,7 +240,7 @@ def test_contingencia_maxima_manual_snapshot_extracts_uuid_and_keeps_final_affil
         record,
         existing=None,
     )
-    assert values[2] == "contingencia_maxima"
+    assert values[2] == "afiliado"
     assert values[11] == affiliate_url
 
 
@@ -253,11 +253,11 @@ def test_contingencia_maxima_manual_snapshot_extracts_uuid_and_keeps_final_affil
         "/produto/9b597da1-2d3a-47e5-86c6-5852f2c68000/extra",
     ],
 )
-def test_contingencia_maxima_manual_snapshot_rejects_malformed_product_identity(path):
+def test_afiliado_manual_snapshot_rejects_malformed_product_identity(path):
     product_url = "https://contingenciamaxima.com.br" + path
     record = _manual_record(
         automation_id="contingencia-invalid-row",
-        partner="Contingência Máxima",
+        partner="Afiliado",
         product_type="Digital",
         product_url=product_url,
         affiliate_url=product_url + "?ref=lukn",
@@ -271,7 +271,7 @@ def test_contingencia_maxima_manual_snapshot_rejects_malformed_product_identity(
         sync._manual_import_snapshot(record, NOW)
 
 
-def test_contingencia_maxima_manual_mode_does_not_select_public_connector():
+def test_afiliado_manual_mode_does_not_select_public_connector():
     from conftest import FakeSheetsGateway, _quoted
     from automation.config import IMPORT_HEADERS, PRODUCTS_HEADERS
 
@@ -282,7 +282,7 @@ def test_contingencia_maxima_manual_mode_does_not_select_public_connector():
     )
     record = _manual_record(
         automation_id="contingencia-no-connector",
-        partner="Contingência Máxima",
+        partner="Afiliado",
         product_type="Digital",
         product_url=product_url,
         affiliate_url=product_url + "?ref=lukn",
@@ -340,5 +340,5 @@ def test_contingencia_maxima_manual_mode_does_not_select_public_connector():
     assert report.final_status(2) is ImportStatus.PUBLICADO
     assert calls == []
     values = report.planned_product_updates[0].values[0]
-    assert values[2] == "contingencia_maxima"
+    assert values[2] == "afiliado"
     assert values[11] == product_url + "?ref=lukn"

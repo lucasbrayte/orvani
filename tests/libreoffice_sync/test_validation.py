@@ -77,7 +77,7 @@ def test_valid_manual_row_passes(valid_row):
 def test_query_merge_domain_mismatch_is_local_validation_error(valid_row):
     row = replace(
         valid_row,
-        partner="Contingência Máxima",
+        partner="Afiliado",
         product_type="Digital",
         product_url="https://contingenciamaxima.com.br/produto/123",
         affiliate_url="https://outra-loja.example?ref=lukn",

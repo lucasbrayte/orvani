@@ -8,7 +8,7 @@ class AffiliateUrlError(ValueError):
 
 
 QUERY_MERGE_PARTNERS = {
-    "Contingência Máxima": ("contingenciamaxima.com.br",),
+    "Afiliado": ("contingenciamaxima.com.br",),
 }
 
 

@@ -588,7 +588,7 @@ test("footer exposes only the current public partner set without removing intern
     Object.keys(core.CONFIG.affiliatePartners),
     [
       "amazon",
-      "contingencia_maxima",
+      "afiliado",
       "shopee",
       "mercado_livre",
       "aliexpress",
@@ -777,20 +777,20 @@ test("amazon is publicly exposed only after backend enablement", () => {
 });
 
 
-test("registers Contingência Máxima with only its approved host", () => {
+test("registers Afiliado with only its approved host", () => {
   assert.equal(
-    core.partnerLabel("contingencia_maxima"),
-    "Contingência Máxima",
+    core.partnerLabel("afiliado"),
+    "Afiliado",
   );
   assert.deepEqual(
-    core.CONFIG.affiliatePartners.contingencia_maxima.hosts,
+    core.CONFIG.affiliatePartners.afiliado.hosts,
     ["contingenciamaxima.com.br"],
   );
 
   assert.equal(
     core.validatePartnerUrl(
       "https://contingenciamaxima.com.br/produto/9b597da1-2d3a-47e5-86c6-5852f2c68000?ref=lukn",
-      "contingencia_maxima",
+      "afiliado",
     ),
     "https://contingenciamaxima.com.br/produto/9b597da1-2d3a-47e5-86c6-5852f2c68000?ref=lukn",
   );
@@ -798,18 +798,18 @@ test("registers Contingência Máxima with only its approved host", () => {
   assert.equal(
     core.validatePartnerUrl(
       "https://contingenciamaxima.com.br.evil.example/produto/123?ref=lukn",
-      "contingencia_maxima",
+      "afiliado",
     ),
     null,
   );
 });
 
 
-test("accepts Contingência Máxima rows from the current Produtos sheet contract", () => {
+test("accepts Afiliado rows from the current Produtos sheet contract", () => {
   const cells = [
     "Sim",
     "Digital",
-    "Contingência Máxima",
+    "Afiliado",
     "Games",
     "Assinaturas",
     "Produto digital",
@@ -833,7 +833,7 @@ test("accepts Contingência Máxima rows from the current Produtos sheet contrac
 
   assert.equal(result.rejected.length, 0);
   assert.equal(result.products.length, 1);
-  assert.equal(result.products[0].partner, "contingencia_maxima");
+  assert.equal(result.products[0].partner, "afiliado");
   assert.equal(
     result.products[0].affiliateUrl,
     "https://contingenciamaxima.com.br/produto/9b597da1-2d3a-47e5-86c6-5852f2c68000?ref=lukn",

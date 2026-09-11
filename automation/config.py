@@ -101,9 +101,9 @@ PARTNERS: Mapping[str, PartnerConfig] = {
     "amazon": PartnerConfig(
         "amazon", "Amazon", ("amazon.com.br", "amzn.to", "link.amazon"), False
     ),
-    "contingencia_maxima": PartnerConfig(
-        "contingencia_maxima",
-        "Contingência Máxima",
+    "afiliado": PartnerConfig(
+        "afiliado",
+        "Afiliado",
         ("contingenciamaxima.com.br",),
         False,
     ),

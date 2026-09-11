@@ -158,7 +158,7 @@ def test_status_poll_runs_once_per_interval(valid_row):
 def test_invalid_query_merge_stays_local_and_is_not_uploaded(valid_row):
     row = replace(
         valid_row,
-        partner="Contingência Máxima",
+        partner="Afiliado",
         product_type="Digital",
         product_url="https://contingenciamaxima.com.br/produto/123",
         affiliate_url="https://outra-loja.example?ref=lukn",
