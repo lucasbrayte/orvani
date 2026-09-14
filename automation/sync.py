@@ -1574,6 +1574,22 @@ def _manual_shopee_fallback_ready(record: ImportRecord) -> bool:
     return True
 
 
+def _manual_affiliate_ready(record: ImportRecord) -> bool:
+    if (
+        _canonical_partner_key(record.partner) != "afiliado"
+        or record.update_mode is not UpdateMode.MANUAL
+    ):
+        return False
+    try:
+        _manual_import_snapshot(
+            record,
+            datetime(1970, 1, 1, tzinfo=UTC),
+        )
+    except InvalidProductDataError:
+        return False
+    return True
+
+
 def _manual_mercado_livre_fallback_ready(record: ImportRecord) -> bool:
     try:
         _manual_mercado_livre_snapshot(record, datetime(1970, 1, 1, tzinfo=UTC))
@@ -1686,6 +1702,11 @@ def _is_selected(record: ImportRecord, mode: str, now: datetime) -> bool:
         return category == "temporary" and record.consecutive_attempts < 3
     if record.status is ImportStatus.ERRO:
         partner_key = _canonical_partner_key(record.partner)
+        if (
+            partner_key == "afiliado"
+            and _manual_affiliate_ready(record)
+        ):
+            return True
         if (
             partner_key == "shein"
             and _manual_shein_fallback_ready(record)
