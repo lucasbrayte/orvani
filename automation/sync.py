@@ -15,7 +15,6 @@ from hashlib import sha256
 import json
 from math import isfinite
 import re
-import sys
 from threading import Lock, Semaphore
 from typing import Any
 import unicodedata
@@ -1586,12 +1585,7 @@ def _manual_affiliate_ready(record: ImportRecord) -> bool:
             record,
             datetime(1970, 1, 1, tzinfo=UTC),
         )
-    except InvalidProductDataError as error:
-        print(
-            f"diagnóstico afiliado manual: {error}",
-            file=sys.stderr,
-            flush=True,
-        )
+    except InvalidProductDataError:
         return False
     return True
 
