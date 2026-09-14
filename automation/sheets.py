@@ -133,6 +133,55 @@ def setup_import_sheet(gateway: SheetsGateway, worksheet: str, *, dry_run: bool 
     return plan
 
 
+def refresh_import_validations(
+    gateway: SheetsGateway,
+    worksheet: str,
+    *,
+    dry_run: bool = False,
+) -> tuple[Mapping[str, Any], ...]:
+    # Reaplica somente os dropdowns da aba Importações.
+    _validate_title(worksheet)
+    inventory = _sheet_inventory(gateway.get_spreadsheet())
+    existing = inventory.get(worksheet)
+    if existing is None:
+        raise SheetSchemaError("A aba Importações não existe.")
+
+    grid = existing["properties"]["gridProperties"]
+    rows = grid["rowCount"]
+    if rows < 2 or grid["columnCount"] < len(IMPORT_HEADERS):
+        raise SheetSchemaError(
+            "A grade existente não comporta o contrato Importações."
+        )
+
+    values = gateway.get_values(
+        _a1_range(worksheet, "A1:AF1")
+    ).get("values", [])
+    if (
+        not isinstance(values, list)
+        or not values
+        or not isinstance(values[0], list)
+    ):
+        raise SheetSchemaError(
+            "A aba Importações não possui a linha de cabeçalho exigida."
+        )
+    validate_headers(values[0])
+
+    sheet_id = existing["properties"]["sheetId"]
+    requests = tuple(
+        _validation_request(sheet_id, rows, column, allowed)
+        for column, allowed in (
+            (1, ("Sim", "Não")),
+            (2, ("Sim", "Não")),
+            (3, ("Sim", "Não")),
+            (5, tuple(item.value for item in UpdateMode)),
+            (_STATUS_COLUMN, tuple(item.value for item in ImportStatus)),
+        )
+    )
+    if requests and not dry_run:
+        gateway.batch_update(requests)
+    return requests
+
+
 def ensure_divulgation_sheet(
     gateway: SheetsGateway,
     worksheet: str,

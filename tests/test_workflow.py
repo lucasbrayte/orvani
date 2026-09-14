@@ -183,7 +183,16 @@ def test_workflow_contract_limits_permissions_and_scopes_credentials():
         "required": "true",
         "type": "choice",
         "default": "validate",
-        "options": ["validate", "setup-dry-run", "pending", "full", "setup"],
+        "options": [
+            "validate",
+            "setup-dry-run",
+            "refresh-validations",
+            "pending",
+            "full",
+            "backfill-dry-run",
+            "backfill",
+            "setup",
+        ],
     }
     assert dispatch["inputs"]["confirm_setup"] == {
         "description": "Confirm the authorized write to the Importações sheet",
@@ -222,6 +231,7 @@ def test_workflow_contract_limits_permissions_and_scopes_credentials():
         "GOOGLE_SERVICE_ACCOUNT_JSON": "${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}",
         "ORVANI_IMPORT_WORKSHEET": "${{ vars.ORVANI_IMPORT_WORKSHEET }}",
         "ORVANI_PRODUCTS_WORKSHEET": "${{ vars.ORVANI_PRODUCTS_WORKSHEET }}",
+        "ORVANI_CONFIRM_BACKFILL": "${{ github.event_name == 'workflow_dispatch' && inputs.confirm_backfill || false }}",
         "ORVANI_CONFIRM_SETUP": "${{ github.event_name == 'workflow_dispatch' && inputs.confirm_setup || false }}",
     }
     assert all("GOOGLE_SERVICE_ACCOUNT_JSON" not in step.get("env", {}) for step in steps[:-1])
@@ -229,3 +239,34 @@ def test_workflow_contract_limits_permissions_and_scopes_credentials():
         not ({"ORVANI_IMPORT_WORKSHEET", "ORVANI_PRODUCTS_WORKSHEET"} & set(step.get("env", {})))
         for step in steps[:-1]
     )
+
+def test_selector_invokes_refresh_validations_only_with_setup_confirmation(tmp_path: Path):
+    capture_path = tmp_path / "argv.txt"
+    fake_python = tmp_path / "fake-python"
+    fake_python.write_text(
+        '#!/usr/bin/env bash\nprintf "%s\\n" "$@" > "$CAPTURE_PATH"\n',
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+
+    result = subprocess.run(
+        [str(SELECTOR_PATH), "refresh-validations"],
+        cwd=REPOSITORY_ROOT,
+        env={
+            **os.environ,
+            "PYTHON_EXECUTABLE": str(fake_python),
+            "CAPTURE_PATH": str(capture_path),
+            "ORVANI_CONFIRM_SETUP": "true",
+            "ORVANI_IMPORT_WORKSHEET": "Importações",
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert capture_path.read_text(encoding="utf-8").splitlines() == [
+        "-m",
+        "automation.cli",
+        "refresh-validations",
+    ]

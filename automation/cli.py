@@ -15,7 +15,7 @@ from .connectors.base import build_connector_registry
 from .http_client import SafeHttpClient
 from .divulgation_backfill import plan_divulgation_backfill
 from .models import AmbiguousProductMatchError, ConfigurationError, ImportRecord, ImportStatus, SheetSchemaError
-from .sheets import GoogleSheetsGateway, SheetsGateway, batch_write, ensure_divulgation_sheet, read_table, setup_import_sheet
+from .sheets import GoogleSheetsGateway, SheetsGateway, batch_write, ensure_divulgation_sheet, read_table, refresh_import_validations, setup_import_sheet
 from .sync import SyncEngine, find_product_match, parse_product_rows, validate_import_row
 
 
@@ -47,6 +47,8 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     setup = commands.add_parser("setup-sheet")
     setup.add_argument("--dry-run", action="store_true")
+    refresh = commands.add_parser("refresh-validations")
+    refresh.add_argument("--dry-run", action="store_true")
     sync = commands.add_parser("sync")
     sync.add_argument("--mode", choices=("pending", "full"), required=True)
     sync.add_argument("--dry-run", action="store_true")
@@ -98,6 +100,18 @@ def main(argv: Sequence[str] | None = None, cli_dependencies: CliDependencies | 
                 dry_run=arguments.dry_run,
             )
             print(f"setup-sheet: criado={int(plan.created)} alterações={len(plan.requests)} dry_run={int(arguments.dry_run)}")
+            return 0
+        if arguments.command == "refresh-validations":
+            requests = refresh_import_validations(
+                dependencies.gateway,
+                dependencies.settings.import_worksheet,
+                dry_run=arguments.dry_run,
+            )
+            print(
+                "refresh-validations: "
+                f"alterações={len(requests)} "
+                f"dry_run={int(arguments.dry_run)}"
+            )
             return 0
         if arguments.command == "backfill-divulgation":
             created = ensure_divulgation_sheet(

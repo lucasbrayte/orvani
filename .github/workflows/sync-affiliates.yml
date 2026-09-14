@@ -17,6 +17,7 @@ on:
         options:
           - validate
           - setup-dry-run
+          - refresh-validations
           - pending
           - full
           - backfill-dry-run

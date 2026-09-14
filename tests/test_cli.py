@@ -391,3 +391,13 @@ def test_validate_rejects_well_formed_but_unauthorized_partner_config(cli_depend
     partners = dict(PARTNERS)
     partners["shopee"] = partner
     assert main(["validate"], replace(cli_dependencies, partners=partners)) == 1
+
+def test_refresh_validations_cli_writes_only_validation_batch(cli_dependencies):
+    from automation.cli import main
+
+    assert main(["refresh-validations"], cli_dependencies) == 0
+    writes = cli_dependencies.gateway.spreadsheet_writes
+    assert len(writes) == 1
+    assert len(writes[0]) == 5
+    assert all("setDataValidation" in request for request in writes[0])
+    assert cli_dependencies.gateway.value_writes == []

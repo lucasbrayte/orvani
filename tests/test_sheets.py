@@ -821,3 +821,48 @@ def test_plan_new_import_row_preserves_existing_cells_and_is_noop_after_adoption
     assert first.values[0][6] == "https://store.test/product"
     assert first.values[0][2] == "Não"
     assert plan_new_import_row("Fila '2026", 8, current_values=first.values[0]) is None
+
+def test_refresh_import_validations_updates_only_dropdown_rules(fake_sheets_with_imports):
+    from automation.sheets import refresh_import_validations
+
+    sheet = fake_sheets_with_imports._sheets[0]
+    sheet["conditionalFormats"] = [{
+        "ranges": [{
+            "sheetId": 17,
+            "startRowIndex": 1,
+            "endRowIndex": 1000,
+            "startColumnIndex": 25,
+            "endColumnIndex": 26,
+        }],
+        "booleanRule": {
+            "condition": {
+                "type": "TEXT_EQ",
+                "values": [{"userEnteredValue": "ERRO"}],
+            },
+            "format": {"backgroundColor": {"red": 0.123}},
+        },
+    }]
+
+    before_values = fake_sheets_with_imports.values("'Importações'!A1:AF")
+
+    requests = refresh_import_validations(
+        fake_sheets_with_imports,
+        "Importações",
+    )
+
+    assert len(requests) == 5
+    assert all("setDataValidation" in request for request in requests)
+    assert _validation_values(requests, 5) == [
+        "Automático",
+        "Manual",
+        "Bloqueado",
+    ]
+    assert fake_sheets_with_imports.values("'Importações'!A1:AF") == before_values
+    assert len(fake_sheets_with_imports.spreadsheet_writes) == 1
+    assert all(
+        "setDataValidation" in request
+        for request in fake_sheets_with_imports.spreadsheet_writes[0]
+    )
+    assert sheet["conditionalFormats"][0]["booleanRule"]["format"] == {
+        "backgroundColor": {"red": 0.123}
+    }
