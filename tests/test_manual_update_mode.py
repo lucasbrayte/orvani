@@ -342,3 +342,51 @@ def test_afiliado_manual_mode_does_not_select_public_connector():
     values = report.planned_product_updates[0].values[0]
     assert values[2] == "afiliado"
     assert values[11] == product_url + "?ref=lukn"
+
+
+def test_affiliate_manual_readiness_logs_only_safe_validation_reason(capsys):
+    product_id = "9b597da1-2d3a-47e5-86c6-5852f2c68000"
+    product_url = (
+        "https://contingenciamaxima.com.br/produto/"
+        + product_id
+    )
+    record = _manual_record(
+        automation_id="diag-affiliate",
+        partner="Afiliado",
+        update_mode=UpdateMode.MANUAL,
+        product_type="Digital",
+        product_url=product_url,
+        affiliate_url=product_url + "?ref=segredo-nao-imprimir",
+        description="",
+        image_1="https://images.example/digital.jpg",
+    )
+
+    assert sync._manual_affiliate_ready(record) is False
+
+    captured = capsys.readouterr()
+    assert (
+        "diagnóstico afiliado manual: O produto manual está incompleto."
+        in captured.err
+    )
+    assert product_url not in captured.err
+    assert "segredo-nao-imprimir" not in captured.err
+
+
+def test_valid_affiliate_manual_readiness_is_silent(capsys):
+    product_id = "9b597da1-2d3a-47e5-86c6-5852f2c68000"
+    product_url = (
+        "https://contingenciamaxima.com.br/produto/"
+        + product_id
+    )
+    record = _manual_record(
+        automation_id="diag-affiliate-valid",
+        partner="Afiliado",
+        update_mode=UpdateMode.MANUAL,
+        product_type="Digital",
+        product_url=product_url,
+        affiliate_url=product_url + "?ref=lukn",
+        image_1="https://images.example/digital.jpg",
+    )
+
+    assert sync._manual_affiliate_ready(record) is True
+    assert capsys.readouterr().err == ""
