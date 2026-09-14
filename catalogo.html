@@ -67,15 +67,69 @@
 
     <main id="main-content" tabindex="-1">
       <section class="catalog-hero" aria-labelledby="catalog-page-title">
-        <span class="catalog-hero-glow" aria-hidden="true"></span>
-        <div class="catalog-hero-inner reveal">
-          <p class="eyebrow"><span aria-hidden="true">✦</span> Descubra do seu jeito</p>
-          <h1 id="catalog-page-title">Explore nosso catálogo</h1>
-          <p>A Orvani reúne produtos físicos e digitais de lojas parceiras para tornar sua descoberta mais simples e transparente.</p>
-          <div class="catalog-hero-meta">
-            <span><strong id="catalog-total">—</strong> produtos ativos</span>
-            <span>Atualização pelo catálogo público</span>
+        <span class="catalog-hero-glow catalog-hero-glow-one" aria-hidden="true"></span>
+        <span class="catalog-hero-glow catalog-hero-glow-two" aria-hidden="true"></span>
+
+        <div class="catalog-hero-inner">
+          <div class="catalog-hero-copy reveal">
+            <p class="eyebrow"><span aria-hidden="true">✦</span> Ofertas em um só lugar</p>
+            <h1 id="catalog-page-title">
+              Descubra produtos para o seu <span>dia a dia.</span>
+            </h1>
+            <p class="catalog-hero-description">
+              Encontre produtos físicos e digitais de lojas parceiras em uma vitrine simples, organizada e transparente.
+            </p>
+
+            <div class="catalog-hero-actions">
+              <a class="button button-primary catalog-hero-primary-action" href="#catalog-grid">
+                Explorar produtos
+              </a>
+              <a class="button button-secondary catalog-hero-secondary-action" href="#catalog-search">
+                Buscar no catálogo
+              </a>
+            </div>
+
+            <div class="catalog-hero-meta">
+              <span><strong id="catalog-total">—</strong> produtos ativos</span>
+              <span>Produtos físicos e digitais</span>
+            </div>
           </div>
+
+          <aside
+            class="catalog-hero-showcase reveal"
+            id="catalog-hero-showcase"
+            aria-label="Produto em destaque"
+            hidden
+          >
+            <div class="catalog-hero-showcase-top">
+              <span class="catalog-hero-showcase-label">Destaque Orvani</span>
+              <div class="catalog-hero-showcase-controls" id="catalog-hero-controls">
+                <button
+                  class="catalog-hero-arrow"
+                  id="catalog-hero-prev"
+                  type="button"
+                  aria-label="Destaque anterior"
+                >←</button>
+                <button
+                  class="catalog-hero-arrow"
+                  id="catalog-hero-next"
+                  type="button"
+                  aria-label="Próximo destaque"
+                >→</button>
+              </div>
+            </div>
+
+            <div class="catalog-hero-feature" id="catalog-hero-feature"></div>
+
+            <div class="catalog-hero-showcase-footer">
+              <div
+                class="catalog-hero-indicators"
+                id="catalog-hero-indicators"
+                aria-label="Posição dos destaques"
+              ></div>
+              <p class="visually-hidden" id="catalog-hero-live" aria-live="polite"></p>
+            </div>
+          </aside>
         </div>
       </section>
 

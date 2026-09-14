@@ -803,6 +803,26 @@ const CONFIG = {
     });
   }
 
+  function featuredProducts(products) {
+    const source = Array.isArray(products) ? products : [];
+    return Object.freeze(
+      source.filter((product) =>
+        product?.active === true && product?.featured === true
+      ),
+    );
+  }
+
+  function featuredProductAt(products, index = 0) {
+    const featured = featuredProducts(products);
+    if (featured.length === 0) return null;
+
+    const rawIndex = Number.isSafeInteger(index) ? index : 0;
+    const normalizedIndex =
+      ((rawIndex % featured.length) + featured.length) % featured.length;
+
+    return featured[normalizedIndex];
+  }
+
   function filterProducts(products, filters = {}) {
     const queryTokens = searchable(filters.query).split(" ").filter(Boolean);
     const category = searchable(filters.category);
@@ -890,6 +910,8 @@ const CONFIG = {
     categorySlug,
     categoryIconClass,
     collectionPresentation,
+    featuredProducts,
+    featuredProductAt,
     readCatalogFilters,
     serializeCatalogFilters,
     catalogSearchHref,
@@ -916,6 +938,7 @@ const CONFIG = {
     const reducedMotionQuery = globalThis.matchMedia("(prefers-reduced-motion: reduce)");
     let heroReelController = null;
     let collectionCarouselController = null;
+    let catalogHeroSpotlightController = null;
     let revealObserver = null;
     let refreshTimer = null;
     let lastFetchAt = 0;
@@ -1084,6 +1107,223 @@ const CONFIG = {
         productDialogOpener?.focus?.();
         productDialogOpener = null;
       });
+    }
+
+    function createCatalogHeroFeature(product) {
+      const card = element("article", "catalog-hero-product");
+
+      const media = productImage(product, { eager: true });
+      media.className += " catalog-hero-product-media";
+
+      const badge = element(
+        "span",
+        "catalog-hero-product-badge",
+        "Em destaque",
+      );
+      media.append(badge);
+
+      const content = element("div", "catalog-hero-product-content");
+      const meta = element("div", "catalog-hero-product-meta");
+      meta.append(
+        element("span", "partner-label", partnerLabel(product.partner)),
+        element("span", "type-label", typeLabel(product.type)),
+      );
+
+      content.append(
+        meta,
+        element("h2", "catalog-hero-product-title", product.name),
+      );
+
+      if (product.shortDescription) {
+        content.append(
+          element(
+            "p",
+            "catalog-hero-product-description",
+            product.shortDescription,
+          ),
+        );
+      }
+
+      const view = offerPresentation(product);
+      content.append(priceBlock(product, view));
+
+      const offer = offerLink(
+        product,
+        "button button-primary offer-link catalog-hero-product-offer",
+      );
+      content.append(offer);
+
+      card.append(media, content);
+      return card;
+    }
+
+    function createCatalogHeroSpotlight(products) {
+      const hero = document.querySelector(".catalog-hero-inner");
+      const root = document.querySelector("#catalog-hero-showcase");
+      const host = document.querySelector("#catalog-hero-feature");
+      const controls = document.querySelector("#catalog-hero-controls");
+      const previous = document.querySelector("#catalog-hero-prev");
+      const next = document.querySelector("#catalog-hero-next");
+      const indicators = document.querySelector("#catalog-hero-indicators");
+      const live = document.querySelector("#catalog-hero-live");
+
+      if (
+        !hero || !root || !host || !controls ||
+        !previous || !next || !indicators || !live
+      ) {
+        return { destroy() {} };
+      }
+
+      const featured = featuredProducts(products);
+
+      if (featured.length === 0) {
+        root.hidden = true;
+        hero.classList.remove("has-featured-product");
+        host.replaceChildren();
+        indicators.replaceChildren();
+        return { destroy() {} };
+      }
+
+      root.hidden = false;
+      hero.classList.add("has-featured-product");
+      controls.hidden = featured.length <= 1;
+
+      const pauseReasons = new Set();
+      const intervalMs = 5000;
+      let index = 0;
+      let timer = null;
+
+      function clearTimer() {
+        if (timer !== null) globalThis.clearTimeout(timer);
+        timer = null;
+      }
+
+      function render({ announce = false } = {}) {
+        const product = featuredProductAt(featured, index);
+        if (!product) return;
+
+        host.replaceChildren(createCatalogHeroFeature(product));
+
+        indicators.replaceChildren(
+          ...featured.map((item, dotIndex) => {
+            const button = element("button", "catalog-hero-dot");
+            button.type = "button";
+            button.setAttribute(
+              "aria-label",
+              `Mostrar ${item.name} como destaque`,
+            );
+            button.setAttribute(
+              "aria-current",
+              dotIndex === index ? "true" : "false",
+            );
+            button.addEventListener("click", () => {
+              index = dotIndex;
+              render({ announce: true });
+              schedule();
+            });
+            return button;
+          }),
+        );
+
+        root.dataset.featureIndex = String(index);
+
+        if (announce) {
+          live.textContent =
+            `${product.name}, destaque ${index + 1} de ${featured.length}`;
+        }
+      }
+
+      function schedule() {
+        clearTimer();
+
+        if (
+          featured.length <= 1 ||
+          reducedMotionQuery.matches ||
+          pauseReasons.size > 0
+        ) {
+          return;
+        }
+
+        timer = globalThis.setTimeout(() => {
+          index = (index + 1) % featured.length;
+          render();
+          schedule();
+        }, intervalMs);
+      }
+
+      function pause(reason) {
+        pauseReasons.add(reason);
+        clearTimer();
+      }
+
+      function resume(reason) {
+        pauseReasons.delete(reason);
+        schedule();
+      }
+
+      function go(delta) {
+        index =
+          (index + delta + featured.length) % featured.length;
+        render({ announce: true });
+        schedule();
+      }
+
+      const onPrevious = () => go(-1);
+      const onNext = () => go(1);
+      const onMouseEnter = () => pause("hover");
+      const onMouseLeave = () => resume("hover");
+      const onFocusIn = () => pause("focus");
+      const onFocusOut = (event) => {
+        if (!root.contains(event.relatedTarget)) resume("focus");
+      };
+      const onPointerDown = () => pause("pointer");
+      const onPointerUp = () => resume("pointer");
+      const onVisibility = () => {
+        if (document.hidden) pause("visibility");
+        else resume("visibility");
+      };
+      const onMotion = () => {
+        if (reducedMotionQuery.matches) pause("motion");
+        else resume("motion");
+      };
+
+      previous.addEventListener("click", onPrevious);
+      next.addEventListener("click", onNext);
+      root.addEventListener("mouseenter", onMouseEnter);
+      root.addEventListener("mouseleave", onMouseLeave);
+      root.addEventListener("focusin", onFocusIn);
+      root.addEventListener("focusout", onFocusOut);
+      root.addEventListener("pointerdown", onPointerDown);
+      root.addEventListener("pointerup", onPointerUp);
+      root.addEventListener("pointercancel", onPointerUp);
+      document.addEventListener("visibilitychange", onVisibility);
+      reducedMotionQuery.addEventListener?.("change", onMotion);
+
+      render();
+      schedule();
+
+      return {
+        destroy() {
+          clearTimer();
+          previous.removeEventListener("click", onPrevious);
+          next.removeEventListener("click", onNext);
+          root.removeEventListener("mouseenter", onMouseEnter);
+          root.removeEventListener("mouseleave", onMouseLeave);
+          root.removeEventListener("focusin", onFocusIn);
+          root.removeEventListener("focusout", onFocusOut);
+          root.removeEventListener("pointerdown", onPointerDown);
+          root.removeEventListener("pointerup", onPointerUp);
+          root.removeEventListener("pointercancel", onPointerUp);
+          document.removeEventListener("visibilitychange", onVisibility);
+          reducedMotionQuery.removeEventListener?.("change", onMotion);
+        },
+      };
+    }
+
+    function renderCatalogHeroSpotlight(products) {
+      catalogHeroSpotlightController?.destroy();
+      catalogHeroSpotlightController =
+        createCatalogHeroSpotlight(products);
     }
 
     function createProductCard(product, index) {
@@ -1393,6 +1633,7 @@ const CONFIG = {
     function renderCatalog(products) {
       const total = document.querySelector("#catalog-total");
       if (total) total.textContent = String(products.length);
+      renderCatalogHeroSpotlight(products);
       renderCategoryFilter(products);
       syncCatalogControls();
       renderFilteredProducts();
@@ -1972,6 +2213,7 @@ const CONFIG = {
     }
 
     globalThis.OrvaniApp = Object.freeze({
+      createCatalogHeroSpotlight,
       createProductCard,
       openProductDetails,
       loadCatalog,
