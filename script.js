@@ -803,60 +803,6 @@ const CONFIG = {
     });
   }
 
-  function featuredProducts(products) {
-    const source = Array.isArray(products) ? products : [];
-    return Object.freeze(
-      source.filter((product) =>
-        product?.active === true && product?.featured === true
-      ),
-    );
-  }
-
-  function featuredProductWindow(products, start = 0, size = 4) {
-    const featured = featuredProducts(products);
-    if (featured.length === 0) return Object.freeze([]);
-
-    const normalizedSize = Number.isSafeInteger(size) && size > 0 ? size : 4;
-    const count = Math.min(normalizedSize, featured.length);
-    const rawStart = Number.isSafeInteger(start) ? start : 0;
-    const normalizedStart =
-      ((rawStart % featured.length) + featured.length) % featured.length;
-
-    return Object.freeze(
-      Array.from(
-        { length: count },
-        (_, index) => featured[(normalizedStart + index) % featured.length],
-      ),
-    );
-  }
-
-  function catalogCategoryPresentation(products) {
-    const counts = new Map();
-
-    for (const product of Array.isArray(products) ? products : []) {
-      if (product?.active !== true) continue;
-      const title = compactText(product.category);
-      const slug = categorySlug(title);
-      if (!title || !slug) continue;
-
-      const existing = counts.get(slug);
-      if (existing) existing.count += 1;
-      else counts.set(slug, { title, slug, count: 1 });
-    }
-
-    return Object.freeze(
-      [...counts.values()]
-        .sort((left, right) =>
-          right.count - left.count ||
-          left.title.localeCompare(right.title, "pt-BR")
-        )
-        .map((item) => Object.freeze({
-          ...item,
-          iconClass: categoryIconClass(item.title),
-        })),
-    );
-  }
-
   function filterProducts(products, filters = {}) {
     const queryTokens = searchable(filters.query).split(" ").filter(Boolean);
     const category = searchable(filters.category);
@@ -944,9 +890,6 @@ const CONFIG = {
     categorySlug,
     categoryIconClass,
     collectionPresentation,
-    featuredProducts,
-    featuredProductWindow,
-    catalogCategoryPresentation,
     readCatalogFilters,
     serializeCatalogFilters,
     catalogSearchHref,
@@ -973,7 +916,6 @@ const CONFIG = {
     const reducedMotionQuery = globalThis.matchMedia("(prefers-reduced-motion: reduce)");
     let heroReelController = null;
     let collectionCarouselController = null;
-    let catalogFeaturedController = null;
     let revealObserver = null;
     let refreshTimer = null;
     let lastFetchAt = 0;
@@ -1144,304 +1086,10 @@ const CONFIG = {
       });
     }
 
-    function createCatalogFeatureCard(product, { lead = false } = {}) {
-      const card = element(
-        "article",
-        lead
-          ? "catalog-feature-card catalog-feature-lead"
-          : "catalog-feature-card catalog-feature-tile",
-      );
-
-      const media = productImage(product, { eager: lead });
-      media.className += " catalog-feature-media";
-      media.append(element("span", "catalog-feature-badge", "Destaque"));
-
-      const body = element("div", "catalog-feature-body");
-      const meta = element("div", "catalog-feature-meta");
-      meta.append(
-        element("span", "partner-label", partnerLabel(product.partner)),
-        element("span", "type-label", typeLabel(product.type)),
-      );
-
-      body.append(
-        meta,
-        element("h3", "catalog-feature-title", product.name),
-      );
-
-      if (lead && product.shortDescription) {
-        body.append(
-          element("p", "catalog-feature-description", product.shortDescription),
-        );
-      }
-
-      const view = offerPresentation(product);
-      body.append(priceBlock(product, view));
-
-      const actions = element("div", "catalog-feature-actions");
-      const details = element(
-        "button",
-        "button button-secondary catalog-feature-details",
-        "Ver detalhes",
-      );
-      details.type = "button";
-      details.setAttribute("aria-label", `Ver detalhes de ${product.name}`);
-      details.addEventListener(
-        "click",
-        () => openProductDetails(product, details),
-      );
-
-      actions.append(
-        details,
-        offerLink(
-          product,
-          "button button-primary offer-link catalog-feature-offer",
-        ),
-      );
-      body.append(actions);
-      card.append(media, body);
-      return card;
-    }
-
-    function createCatalogFeaturedRotator(products) {
-      const root = document.querySelector("#catalog-featured");
-      const primary = document.querySelector("#catalog-featured-primary");
-      const secondary = document.querySelector("#catalog-featured-secondary");
-      const indicators = document.querySelector("#catalog-featured-indicators");
-      const controls = document.querySelector("#catalog-featured-controls");
-      const previous = document.querySelector("#catalog-featured-prev");
-      const next = document.querySelector("#catalog-featured-next");
-      const live = document.querySelector("#catalog-featured-live");
-
-      if (
-        !root || !primary || !secondary || !indicators ||
-        !controls || !previous || !next || !live
-      ) {
-        return { destroy() {} };
-      }
-
-      const featured = featuredProducts(products);
-      if (featured.length === 0) {
-        root.hidden = true;
-        primary.replaceChildren();
-        secondary.replaceChildren();
-        indicators.replaceChildren();
-        return { destroy() {} };
-      }
-
-      root.hidden = false;
-      controls.hidden = featured.length <= 1;
-
-      const pauseReasons = new Set();
-      const intervalMs = 5000;
-      let index = 0;
-      let timer = null;
-
-      function clearTimer() {
-        if (timer !== null) globalThis.clearTimeout(timer);
-        timer = null;
-      }
-
-      function render({ announce = false } = {}) {
-        const windowProducts = featuredProductWindow(featured, index, 4);
-        const [leadProduct, ...secondaryProducts] = windowProducts;
-
-        primary.replaceChildren(
-          createCatalogFeatureCard(leadProduct, { lead: true }),
-        );
-        secondary.replaceChildren(
-          ...secondaryProducts.map((product) =>
-            createCatalogFeatureCard(product)
-          ),
-        );
-
-        indicators.replaceChildren(
-          ...featured.map((product, dotIndex) => {
-            const button = element("button", "catalog-feature-dot");
-            button.type = "button";
-            button.setAttribute(
-              "aria-label",
-              `Mostrar ${product.name} como destaque principal`,
-            );
-            button.setAttribute(
-              "aria-current",
-              dotIndex === index ? "true" : "false",
-            );
-            button.addEventListener("click", () => {
-              index = dotIndex;
-              render({ announce: true });
-              schedule();
-            });
-            return button;
-          }),
-        );
-
-        root.dataset.featureIndex = String(index);
-        if (announce) {
-          live.textContent =
-            `${leadProduct.name}, destaque ${index + 1} de ${featured.length}`;
-        }
-      }
-
-      function schedule() {
-        clearTimer();
-        if (
-          featured.length <= 1 ||
-          reducedMotionQuery.matches ||
-          pauseReasons.size > 0
-        ) {
-          return;
-        }
-        timer = globalThis.setTimeout(() => {
-          index = (index + 1) % featured.length;
-          render();
-          schedule();
-        }, intervalMs);
-      }
-
-      function pause(reason) {
-        pauseReasons.add(reason);
-        clearTimer();
-      }
-
-      function resume(reason) {
-        pauseReasons.delete(reason);
-        schedule();
-      }
-
-      function go(delta) {
-        index = (index + delta + featured.length) % featured.length;
-        render({ announce: true });
-        schedule();
-      }
-
-      const onPrevious = () => go(-1);
-      const onNext = () => go(1);
-      const onMouseEnter = () => pause("hover");
-      const onMouseLeave = () => resume("hover");
-      const onFocusIn = () => pause("focus");
-      const onFocusOut = (event) => {
-        if (!root.contains(event.relatedTarget)) resume("focus");
-      };
-      const onPointerDown = () => pause("pointer");
-      const onPointerUp = () => resume("pointer");
-      const onVisibility = () => {
-        if (document.hidden) pause("visibility");
-        else resume("visibility");
-      };
-      const onMotion = () => {
-        if (reducedMotionQuery.matches) pause("motion");
-        else resume("motion");
-      };
-
-      previous.addEventListener("click", onPrevious);
-      next.addEventListener("click", onNext);
-      root.addEventListener("mouseenter", onMouseEnter);
-      root.addEventListener("mouseleave", onMouseLeave);
-      root.addEventListener("focusin", onFocusIn);
-      root.addEventListener("focusout", onFocusOut);
-      root.addEventListener("pointerdown", onPointerDown);
-      root.addEventListener("pointerup", onPointerUp);
-      root.addEventListener("pointercancel", onPointerUp);
-      document.addEventListener("visibilitychange", onVisibility);
-      reducedMotionQuery.addEventListener?.("change", onMotion);
-
-      render();
-      schedule();
-
-      return {
-        destroy() {
-          clearTimer();
-          previous.removeEventListener("click", onPrevious);
-          next.removeEventListener("click", onNext);
-          root.removeEventListener("mouseenter", onMouseEnter);
-          root.removeEventListener("mouseleave", onMouseLeave);
-          root.removeEventListener("focusin", onFocusIn);
-          root.removeEventListener("focusout", onFocusOut);
-          root.removeEventListener("pointerdown", onPointerDown);
-          root.removeEventListener("pointerup", onPointerUp);
-          root.removeEventListener("pointercancel", onPointerUp);
-          document.removeEventListener("visibilitychange", onVisibility);
-          reducedMotionQuery.removeEventListener?.("change", onMotion);
-        },
-      };
-    }
-
-    function renderCatalogFeatured(products) {
-      catalogFeaturedController?.destroy();
-      catalogFeaturedController = createCatalogFeaturedRotator(products);
-    }
-
-    function renderCatalogCategoryStrip(products) {
-      const track = document.querySelector("#catalog-category-track");
-      if (!track) return;
-
-      const categories = catalogCategoryPresentation(products);
-      track.replaceChildren(
-        ...categories.map((category) => {
-          const button = element("button", "catalog-category-button");
-          button.type = "button";
-          button.dataset.category = category.slug;
-          button.setAttribute(
-            "aria-pressed",
-            String(state.filters.category === category.slug),
-          );
-
-          const icon = element(
-            "span",
-            "catalog-category-icon",
-            category.title.slice(0, 1).toUpperCase(),
-          );
-          icon.setAttribute("aria-hidden", "true");
-
-          const copy = element("span", "catalog-category-copy");
-          copy.append(
-            element("strong", "", category.title),
-            element(
-              "small",
-              "",
-              `${category.count} ${category.count === 1 ? "produto" : "produtos"}`,
-            ),
-          );
-
-          button.append(icon, copy);
-          button.classList.toggle(
-            "is-active",
-            state.filters.category === category.slug,
-          );
-
-          button.addEventListener("click", () => {
-            state.filters.category =
-              state.filters.category === category.slug ? "" : category.slug;
-            syncCatalogControls();
-            renderFilteredProducts();
-            updateCatalogUrl("push");
-          });
-
-          return button;
-        }),
-      );
-    }
-
     function createProductCard(product, index) {
       const card = element("article", "product-card reveal");
       card.dataset.productId = product.id;
-      if (product.featured) card.classList.add("is-featured");
-
-      const view = offerPresentation(product);
-      const media = productImage(product, { eager: index < 4 });
-      const badges = element("div", "product-card-badges");
-      if (product.featured) {
-        badges.append(
-          element("span", "product-card-featured-badge", "Destaque"),
-        );
-      }
-      if (view.discount !== null) {
-        badges.append(
-          element("span", "product-card-discount-badge", `-${view.discount}%`),
-        );
-      }
-      if (badges.children.length > 0) media.append(badges);
-      card.append(media);
+      card.append(productImage(product, { eager: index < 4 }));
 
       const body = element("div", "product-card-body");
       const meta = element("div", "product-meta");
@@ -1451,30 +1099,19 @@ const CONFIG = {
         element("span", "partner-label", partnerLabel(product.partner)),
       );
       const title = element("h3", "product-title", product.name);
-      const description = element(
-        "p",
-        "product-description",
-        product.shortDescription,
-      );
+      const description = element("p", "product-description", product.shortDescription);
       const footer = element("div", "product-card-footer");
+      const view = offerPresentation(product);
       footer.append(priceBlock(product, view));
-
       const detailsButton = element(
         "button",
         "button button-secondary product-details-button",
         "Ver detalhes",
       );
       detailsButton.type = "button";
-      detailsButton.setAttribute(
-        "aria-label",
-        `Ver detalhes de ${product.name}`,
-      );
-      detailsButton.addEventListener(
-        "click",
-        () => openProductDetails(product, detailsButton),
-      );
+      detailsButton.setAttribute("aria-label", `Ver detalhes de ${product.name}`);
+      detailsButton.addEventListener("click", () => openProductDetails(product, detailsButton));
       footer.append(detailsButton);
-
       const coupon = couponBlock(view);
       body.append(meta, title, description);
       if (coupon) body.append(coupon);
@@ -1756,7 +1393,6 @@ const CONFIG = {
     function renderCatalog(products) {
       const total = document.querySelector("#catalog-total");
       if (total) total.textContent = String(products.length);
-      renderCatalogFeatured(products);
       renderCategoryFilter(products);
       syncCatalogControls();
       renderFilteredProducts();
@@ -1774,7 +1410,6 @@ const CONFIG = {
 
     function renderFilteredProducts() {
       const activeProducts = state.products.filter((product) => product.active);
-      renderCatalogCategoryStrip(activeProducts);
       const filtered = filterProducts(activeProducts, state.filters);
       const grid = document.querySelector("#product-grid");
       const count = document.querySelector("#result-count");
