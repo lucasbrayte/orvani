@@ -84,3 +84,40 @@ test("catalog product grid remains on the pre-storefront presentation contract",
   assert.doesNotMatch(css, /product-card-featured-badge/);
   assert.doesNotMatch(css, /Professional catalog storefront redesign/);
 });
+
+test("catalog hero carousel is compact and keeps product images contained", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const css = fs.readFileSync(
+    path.join(__dirname, "../../style.css"),
+    "utf8",
+  );
+
+  assert.match(
+    css,
+    /\.catalog-hero-inner\.has-featured-product\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(22rem,\s*0\.92fr\)/s,
+  );
+
+  assert.match(
+    css,
+    /\.catalog-hero-product\s*\{[^}]*min-height:\s*24rem/s,
+  );
+
+  const mediaRule = css.match(
+    /\.catalog-hero-product-media\s*\{([^}]*)\}/s,
+  );
+  assert.ok(mediaRule);
+  assert.match(mediaRule[1], /display:\s*grid;/);
+  assert.match(mediaRule[1], /place-items:\s*center;/);
+  assert.match(mediaRule[1], /min-height:\s*23rem;/);
+
+  const imageRule = css.match(
+    /\.catalog-hero-product-media img\s*\{([^}]*)\}/s,
+  );
+  assert.ok(imageRule);
+  assert.match(imageRule[1], /width:\s*auto;/);
+  assert.match(imageRule[1], /height:\s*auto;/);
+  assert.match(imageRule[1], /max-width:\s*88%;/);
+  assert.match(imageRule[1], /max-height:\s*20\.5rem;/);
+  assert.match(imageRule[1], /object-fit:\s*contain/);
+});
